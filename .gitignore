@@ -1,0 +1,69 @@
+# Node modules
+node_modules/
+.node_modules_bck/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+prisma/*.db
+prisma/*.db-journal
+
+# Database backups
+.mydatabase.sql
+
+# Dist / Build
+dist/
+build/
+
+# Coverage
+coverage/
+
+# Cache
+.cache/
+.tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# PM2 logs and dumps
+.pids/
+*.pid
+*.seed
+*.pid.lock
+pm2.log
+pm2-error.log
+
+# Uploads (if dynamic)
+uploads/
+public/uploads/
+
+# TypeScript build outputs
+*.tsbuildinfo
+
+# Docker data
+docker-data/

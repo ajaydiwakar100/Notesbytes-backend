@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id                         Int       @id @default(autoincrement())
+  name                       String?
+  email                      String    @unique
+  phone                      String?
+  address                    String?
+  country                    String?
+  state                      String?
+  city                       String?
+  user_type                  String?
+  status                     Boolean   @default(true)
+  password                   String
+  roleId                     Int?
+  is_password_reset_required Boolean   @default(false)
+  otp_code                   String?
+  otp_expires_at             DateTime?
+  token_version              Int       @default(0)
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  //Relation field to Role
+  role Role? @relation(fields: [roleId], references: [id])
+}
+
+model GlobalSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  admins          Admin[]
+  rolePermissions RolePermission[]
+}
+
+model Module {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions Permission[]
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  name        String
+  moduleId    Int
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module          Module           @relation(fields: [moduleId], references: [id])
+  rolePermissions RolePermission[]
+
+  @@unique([name, moduleId]) // permission name must be unique within a module
+}
+
+model RolePermission {
+  id           Int @id @default(autoincrement())
+  roleId       Int
+  permissionId Int
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
