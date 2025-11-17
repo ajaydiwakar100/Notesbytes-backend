@@ -1,8 +1,7 @@
-const prisma = require("../../../models/index"); // Your Prisma client
-const AppHelpers = require("../../../helpers/index"); // Assuming AppHelpers is CommonJS
+const { Module,Permission } = require("../../../models/index.js");
+const AppHelpers = require("../../../helpers/index");
 
 const Controller = {
-
   // Centralized error handler
   handleError: (res, err, msg = "Internal server error") => {
     AppHelpers.ErrorLogger(msg, err);
@@ -20,7 +19,7 @@ const Controller = {
     try {
       const { name, description } = req.body;
 
-      const existingModule = await prisma.module.findUnique({ where: { name } });
+      const existingModule = await Module.findOne({ name });
       if (existingModule) {
         retData.status = "error";
         retData.code = 400;
@@ -29,16 +28,7 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const module = await prisma.module.create({
-        data: { name, description },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+      const module = await Module.create({ name, description });
 
       retData.status = "success";
       retData.code = 200;
@@ -48,7 +38,7 @@ const Controller = {
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       console.error("Error in ModuleController.create:", err);
-      return AppHelpers.Utils.cError(res, err);
+      return Controller.handleError(res, err);
     }
   },
 
@@ -56,22 +46,34 @@ const Controller = {
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const modules = await prisma.module.findMany({
-        include: { permissions: true },
-        orderBy: { createdAt: "desc" },
-      });
+      // Fetch modules and populate permissions
+      const modules = await Module.find()
+        .sort({ createdAt: -1 })
+        .lean(); // .lean() returns plain JS objects
+
+      // Attach permissions for each module
+      const modulesWithPermissions = await Promise.all(
+        modules.map(async (module) => {
+          const permissions = await Permission.find({ moduleId: module._id }).sort({ createdAt: 1 }).lean();
+          return {
+            ...module,
+            permissions,
+          };
+        })
+      );
 
       retData.status = "success";
       retData.code = 200;
       retData.httpCode = 200;
-      retData.msg = modules.length 
+      retData.msg = modulesWithPermissions.length
         ? AppHelpers.ResponseMessages.RECORDS_FOUND
         : AppHelpers.ResponseMessages.NO_RECORDS_FOUND;
-      retData.data = modules;
+
+      retData.data = modulesWithPermissions;
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       console.error("Error in ModuleController.list:", err);
-      return AppHelpers.Utils.cError(res, err);
+      return Controller.handleError(res, err);
     }
   },
 
@@ -81,11 +83,7 @@ const Controller = {
     try {
       const { id } = req.params;
 
-      const module = await prisma.module.findUnique({
-        where: { id: Number(id) },
-        include: { permissions: true },
-      });
-
+      const module = await Module.findById(id);
       if (!module) {
         retData.status = "error";
         retData.code = 404;
@@ -102,7 +100,7 @@ const Controller = {
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       console.error("Error in ModuleController.view:", err);
-      return AppHelpers.Utils.cError(res, err);
+      return Controller.handleError(res, err);
     }
   },
 
@@ -112,7 +110,7 @@ const Controller = {
     try {
       const { id, name, description } = req.body;
 
-      const existingModule = await prisma.module.findUnique({ where: { id: Number(id) } });
+      const existingModule = await Module.findById(id);
       if (!existingModule) {
         retData.status = "error";
         retData.code = 404;
@@ -121,16 +119,11 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const updatedModule = await prisma.module.update({
-        where: { id: Number(id) },
-        data: { name, description },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          updatedAt: true,
-        },
-      });
+      const updatedModule = await Module.findByIdAndUpdate(
+        id,
+        { name, description },
+        { new: true }
+      );
 
       retData.status = "success";
       retData.code = 200;
@@ -140,7 +133,7 @@ const Controller = {
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       console.error("Error in ModuleController.update:", err);
-      return AppHelpers.Utils.cError(res, err);
+      return Controller.handleError(res, err);
     }
   },
 
@@ -150,7 +143,7 @@ const Controller = {
     try {
       const { id } = req.params;
 
-      const existingModule = await prisma.module.findUnique({ where: { id: Number(id) } });
+      const existingModule = await Module.findById(id);
       if (!existingModule) {
         retData.status = "error";
         retData.code = 404;
@@ -159,7 +152,7 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      await prisma.module.delete({ where: { id: Number(id) } });
+      await Module.findByIdAndDelete(id);
 
       retData.status = "success";
       retData.code = 200;
@@ -168,10 +161,9 @@ const Controller = {
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       console.error("Error in ModuleController.delete:", err);
-      return AppHelpers.Utils.cError(res, err);
+      return Controller.handleError(res, err);
     }
   },
-
 };
 
 module.exports = Controller;

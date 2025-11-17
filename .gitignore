@@ -67,3 +67,5 @@ public/uploads/
 
 # Docker data
 docker-data/
+
+/app/generated/prisma

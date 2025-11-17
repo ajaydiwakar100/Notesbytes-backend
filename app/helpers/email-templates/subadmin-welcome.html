@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Account Created</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f8f8f8;
+      padding: 20px;
+    }
+
+    .container {
+      background: #fff;
+      padding: 25px;
+      border-radius: 8px;
+      max-width: 600px;
+      margin: auto;
+      border: 1px solid #ddd;
+    }
+
+    h2 {
+      color: #333;
+    }
+
+    .details {
+      background: #f3f3f3;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 6px;
+      font-size: 15px;
+    }
+
+    .footer {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #888;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h2>Hello {{name}},</h2>
+
+    <p>Your administrator account has been successfully created.</p>
+
+    <div class="details">
+      <p><b>Email:</b> {{email}}</p>
+      <p><b>Password:</b> {{password}}</p>
+    </div>
+
+    <p>You can now log in using these credentials.</p>
+
+    <div class="footer">
+      © {{year}} Your Company. All rights reserved.
+    </div>
+  </div>
+</body>
+
+</html>

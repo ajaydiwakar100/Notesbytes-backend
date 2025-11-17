@@ -1,14 +1,13 @@
-const bcrypt = require('bcrypt');
-const prisma = require('../../../models/index.js');         // Prisma client
-const AppHelpers = require('../../../helpers/index.js'); // Utils & ResponseMessages
-const userHelper = require('./helper.js');                  // getAdminProfileData helper
+const bcrypt = require("bcrypt");
+const { Admin } = require("../../../models/index.js");
+const AppHelpers = require("../../../helpers/index.js");
+const userHelper = require("./helper.js");
 
 const Controller = {
-
   // ---------------------------
   // Centralized error handler
   // ---------------------------
-  handleError: function(res, err, msg = "Internal server error") {
+  handleError: function (res, err, msg = "Internal server error") {
     AppHelpers.ErrorLogger(msg, err);
     const retData = AppHelpers.Utils.responseObject();
     retData.status = "error";
@@ -21,53 +20,53 @@ const Controller = {
   // ---------------------------
   // Admin Registration
   // ---------------------------
-  register: async function(req, res) {
+  register: async function (req, res) {
     const retData = AppHelpers.Utils.responseObject();
     const { name, email, password, roleId } = req.body;
 
     try {
-      const existingAdmin = await prisma.admin.findUnique({ where: { email } });
+      const existingAdmin = await Admin.findOne({ email });
       if (existingAdmin) {
         retData.status = "error";
         retData.code = 400;
-        retData.httpCode = 200;
-        retData.msg = AppHelpers.ResponseMessages.USER_EXIST || "Admin already exists";
+        retData.msg = AppHelpers.ResponseMessages.USER_EXIST;
         return AppHelpers.Utils.cRes(res, retData);
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      const admin = await prisma.admin.create({
-        data: { name, email, password: hashedPassword, roleId },
+      const admin = await Admin.create({
+        name,
+        email,
+        //roleId,
+        password: hashedPassword,
       });
 
-      const profileData = await userHelper.getAdminProfileData(admin.id);
+      const profileData = await userHelper.getAdminProfileData(admin._id);
 
       retData.status = "success";
       retData.code = 200;
-      retData.httpCode = 200;
       retData.msg = AppHelpers.ResponseMessages.VALID_USER;
       retData.data = profileData;
 
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
-      return Controller.handleError(res, err, "ERROR in Controller.register");
+      return Controller.handleError(res, err, "ERROR in register");
     }
   },
 
   // ---------------------------
-  // Admin Login
+  // Login
   // ---------------------------
-  login: async function(req, res) {
+  login: async function (req, res) {
     const retData = AppHelpers.Utils.responseObject();
     const { email, password } = req.body;
 
     try {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      const admin = await Admin.findOne({ email });
       if (!admin) {
         retData.status = "error";
         retData.code = 401;
-        retData.httpCode = 200;
         retData.msg = AppHelpers.ResponseMessages.INVALID_LOGIN;
         return AppHelpers.Utils.cRes(res, retData);
       }
@@ -76,26 +75,20 @@ const Controller = {
       if (!isPasswordValid) {
         retData.status = "error";
         retData.code = 401;
-        retData.httpCode = 200;
         retData.msg = AppHelpers.ResponseMessages.INVALID_LOGIN;
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      // Generate 6-digit OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-      await prisma.admin.update({
-        where: { id: admin.id },
-        data: { otp_code: otpCode, otp_expires_at: otpExpiresAt },
+      await Admin.findByIdAndUpdate(admin._id, {
+        otp_code: otpCode,
+        otp_expires_at: otpExpiresAt,
       });
 
       retData.status = "success";
-      retData.code = 200;
-      retData.httpCode = 200;
       retData.msg = AppHelpers.ResponseMessages.CODE_SEND_EMAIL;
-      retData.data = null;
-
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in login");
@@ -105,16 +98,16 @@ const Controller = {
   // ---------------------------
   // OTP Verification
   // ---------------------------
-  verifyOtp: async function(req, res) {
+  verifyOtp: async function (req, res) {
     const retData = AppHelpers.Utils.responseObject();
     const { email, otp } = req.body;
 
     try {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      const admin = await Admin.findOne({ email });
+
       if (!admin) {
         retData.status = "error";
         retData.code = 404;
-        retData.httpCode = 200;
         retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
         return AppHelpers.Utils.cRes(res, retData);
       }
@@ -122,7 +115,6 @@ const Controller = {
       if (!admin.otp_code || admin.otp_code !== otp) {
         retData.status = "error";
         retData.code = 400;
-        retData.httpCode = 200;
         retData.msg = AppHelpers.ResponseMessages.INVALID_OTP;
         return AppHelpers.Utils.cRes(res, retData);
       }
@@ -130,33 +122,35 @@ const Controller = {
       if (!admin.otp_expires_at || admin.otp_expires_at < new Date()) {
         retData.status = "error";
         retData.code = 400;
-        retData.httpCode = 200;
         retData.msg = AppHelpers.ResponseMessages.EXPIRED_OTP;
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const updatedAdmin = await prisma.admin.update({
-        where: { id: admin.id },
-        data: { otp_code: null, otp_expires_at: null, token_version: { increment: 1 } },
-      });
+      const updatedAdmin = await Admin.findByIdAndUpdate(
+        admin._id,
+        {
+          otp_code: null,
+          otp_expires_at: null,
+          $inc: { token_version: 1 },
+        },
+        { new: true }
+      );
 
       const token = await AppHelpers.GenJWTToken({
         userType: "admin",
-        id: admin.id,
-        tokenVersion: updatedAdmin.token_version
+        id: admin._id,
+        tokenVersion: updatedAdmin.token_version,
       });
 
-      const profileData = await userHelper.getAdminProfileData(admin.id);
+      const profileData = await userHelper.getAdminProfileData(admin._id);
       profileData.auth_token = token;
 
       retData.status = "success";
       retData.code = 200;
-      retData.httpCode = 200;
       retData.msg = AppHelpers.ResponseMessages.LOGIN_SUCCESS;
       retData.data = profileData;
 
       return AppHelpers.Utils.cRes(res, retData);
-
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in verifyOtp");
     }
@@ -165,12 +159,13 @@ const Controller = {
   // ---------------------------
   // Forget Password
   // ---------------------------
-  forgetPassword: async function(req, res) {
+  forgetPassword: async function (req, res) {
     const { email } = req.body;
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      const admin = await Admin.findOne({ email });
+
       if (!admin) {
         retData.status = "error";
         retData.code = 404;
@@ -179,18 +174,15 @@ const Controller = {
       }
 
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      await prisma.admin.update({
-        where: { id: admin.id },
-        data: { otp_code: otpCode, otp_expires_at: otpExpiresAt },
+      await Admin.findByIdAndUpdate(admin._id, {
+        otp_code: otpCode,
+        otp_expires_at: otpExpiresAt,
       });
 
       retData.status = "success";
-      retData.code = 200;
       retData.msg = AppHelpers.ResponseMessages.CODE_SEND_EMAIL;
-      retData.data = null;
-
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in forgetPassword");
@@ -200,12 +192,13 @@ const Controller = {
   // ---------------------------
   // Reset Password
   // ---------------------------
-  resetPassword: async function(req, res) {
+  resetPassword: async function (req, res) {
     const { email, otp, newPassword } = req.body;
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      const admin = await Admin.findOne({ email });
+
       if (!admin) {
         retData.status = "error";
         retData.code = 404;
@@ -213,8 +206,11 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const now = new Date();
-      if (!admin.otp_code || admin.otp_code !== otp || !admin.otp_expires_at || admin.otp_expires_at < now) {
+      if (
+        admin.otp_code !== otp ||
+        !admin.otp_expires_at ||
+        admin.otp_expires_at < new Date()
+      ) {
         retData.status = "error";
         retData.code = 400;
         retData.msg = AppHelpers.ResponseMessages.INVALID_OTP_EXPIRED;
@@ -223,18 +219,15 @@ const Controller = {
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      await prisma.admin.update({
-        where: { id: admin.id },
-        data: { password: hashedPassword, otp_code: null, otp_expires_at: null },
+      await Admin.findByIdAndUpdate(admin._id, {
+        password: hashedPassword,
+        otp_code: null,
+        otp_expires_at: null,
       });
 
       retData.status = "success";
-      retData.code = 200;
       retData.msg = AppHelpers.ResponseMessages.PASSWORD_RESET_SUCCESS;
-      retData.data = null;
-
       return AppHelpers.Utils.cRes(res, retData);
-
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in resetPassword");
     }
@@ -243,12 +236,13 @@ const Controller = {
   // ---------------------------
   // Profile
   // ---------------------------
-  getProfile: async function(req, res) {
+  getProfile: async function (req, res) {
     try {
-      const retData = AppHelpers.Utils.responseObject();
       const adminId = req.user.id;
-
       const profile = await userHelper.getAdminProfileData(adminId);
+
+      const retData = AppHelpers.Utils.responseObject();
+
       if (!profile) {
         retData.status = "error";
         retData.code = 404;
@@ -257,9 +251,8 @@ const Controller = {
       }
 
       retData.status = "success";
-      retData.code = 200;
-      retData.msg = AppHelpers.ResponseMessages.PROFILE_FETCH_SUCESSFULLY;
       retData.data = profile;
+      retData.msg = AppHelpers.ResponseMessages.PROFILE_FETCH_SUCESSFULLY;
 
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
@@ -267,16 +260,61 @@ const Controller = {
     }
   },
 
+
+  // ---------------------------
+  // Update Profile
+  // ---------------------------
+  updateProfile: async (req, res) => {
+    const { name, email } = req.body;
+
+    try {
+      const retData = AppHelpers.Utils.responseObject();
+
+      // Admin ID from JWT middleware
+      const adminId = req.user._id || req.user.id; // mongoose uses _id
+
+      // Fetch admin from MongoDB
+      const admin = await Admin.findById(adminId);
+      if (!admin) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 200;
+        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Update fields
+      admin.name = name || admin.name;
+      admin.email = email || admin.email;
+
+      // Save updated admin
+      const updatedAdmin = await admin.save();
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg =
+        AppHelpers.ResponseMessages.PROFILE_UPDATED_SUCCESSFULLY ||
+        "Profile updated successfully";
+      retData.data = updatedAdmin;
+
+      return AppHelpers.Utils.cRes(res, retData);
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in updateProfile");
+    }
+  },
+
   // ---------------------------
   // Change Password
   // ---------------------------
-  changePassword: async function(req, res) {
+  changePassword: async function (req, res) {
     const { oldPassword, newPassword } = req.body;
     const retData = AppHelpers.Utils.responseObject();
 
     try {
       const adminId = req.user.id;
-      const admin = await prisma.admin.findUnique({ where: { id: adminId } });
+      const admin = await Admin.findById(adminId);
+
       if (!admin) {
         retData.status = "error";
         retData.code = 404;
@@ -284,7 +322,11 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const isCurrentPasswordValid = await bcrypt.compare(oldPassword, admin.password);
+      const isCurrentPasswordValid = await bcrypt.compare(
+        oldPassword,
+        admin.password
+      );
+
       if (!isCurrentPasswordValid) {
         retData.status = "error";
         retData.code = 400;
@@ -293,82 +335,36 @@ const Controller = {
       }
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
-      await prisma.admin.update({ where: { id: adminId }, data: { password: hashedPassword } });
+
+      await Admin.findByIdAndUpdate(adminId, { password: hashedPassword });
 
       retData.status = "success";
-      retData.code = 200;
       retData.msg = AppHelpers.ResponseMessages.PASSWORD_CHANGE_SUCESSFULLY;
-      return AppHelpers.Utils.cRes(res, retData);
 
+      return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in changePassword");
     }
   },
 
   // ---------------------------
-  // Update Profile
-  // ---------------------------
-  updateProfile: async function(req, res) {
-    const { name, email } = req.body;
-    const retData = AppHelpers.Utils.responseObject();
-
-    try {
-      const adminId = req.user.id;
-      const admin = await prisma.admin.findUnique({ where: { id: adminId } });
-      if (!admin) {
-        retData.status = "error";
-        retData.code = 404;
-        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
-        return AppHelpers.Utils.cRes(res, retData);
-      }
-
-      const updatedAdmin = await prisma.admin.update({
-        where: { id: adminId },
-        data: { name, email },
-      });
-
-      retData.status = "success";
-      retData.code = 200;
-      retData.msg = AppHelpers.ResponseMessages.PROFILE_UPDATED_SUCCESSFULLY;
-      retData.data = updatedAdmin;
-
-      return AppHelpers.Utils.cRes(res, retData);
-
-    } catch (err) {
-      return Controller.handleError(res, err, "ERROR in updateProfile");
-    }
-  },
-
-  // ---------------------------
   // Logout
   // ---------------------------
-  logout: async function(req, res) {
+  logout: async function (req, res) {
     try {
-      const retData = AppHelpers.Utils.responseObject();
       const adminId = req.user.id;
 
-      await prisma.admin.update({
-        where: { id: adminId },
-        data: { token_version: { increment: 1 } },
-      });
+      await Admin.findByIdAndUpdate(adminId, { $inc: { token_version: 1 } });
 
+      const retData = AppHelpers.Utils.responseObject();
       retData.status = "success";
-      retData.code = 200;
       retData.msg = AppHelpers.ResponseMessages.LOGOUT_SUCCESSFULLY;
-      retData.data = {};
 
       return AppHelpers.Utils.cRes(res, retData);
-
     } catch (err) {
-      AppHelpers.ErrorLogger("ERROR in logout", err);
-      return AppHelpers.Utils.cRes(res, {
-        status: "error",
-        code: 500,
-        msg: "Logout failed",
-      });
+      return Controller.handleError(res, err, "ERROR in logout");
     }
   },
-
 };
 
 module.exports = Controller;

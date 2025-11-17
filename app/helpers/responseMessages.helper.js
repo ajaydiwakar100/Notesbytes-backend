@@ -1,4 +1,4 @@
-	const reponseMessages = {
+const reponseMessages = {
 	INVALID_OTP: "Invalid OTP.",
 	EXPIRED_OTP: "OTP has expired.",
 	VALID_OTP: "OTP is Valid.",
@@ -35,6 +35,10 @@
 	PERMISSION_CREATED: "Permission created successfully",
 	PERMISSION_UPDATED: "Permission updated successfully",
 	PERMISSION_DELETE: "Permission deleted successfully",	
+	SUB_USER_CREATED: "Sub Admin has been created successfully, and the login password has been sent to the provided email address.",
+	SUB_ADMIN_TEMPLATE :"Your admin account details",
+	INVALID_ID: "Invalid Id",
+	EMAIL_OR_INVALID_ID: "Email or phone number already exist !",
 }
 module.exports = reponseMessages;
 

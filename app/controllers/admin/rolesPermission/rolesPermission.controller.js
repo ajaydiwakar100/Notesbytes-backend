@@ -1,9 +1,10 @@
-const prisma = require("../../../models/index");
-const AppHelpers = require("../../../helpers/index"); // adjust path if needed
+const {Role,Permission, Module} = require("../../../models/index.js");
+const AppHelpers = require("../../../helpers/index");
+const mongoose = require("mongoose");
+
 
 const Controller = {
 
-  // Centralized error handler
   handleError: (res, err, msg = "Internal server error") => {
     AppHelpers.ErrorLogger(msg, err);
     const retData = AppHelpers.Utils.responseObject();
@@ -16,50 +17,105 @@ const Controller = {
 
   create: async (req, res) => {
     const retData = AppHelpers.Utils.responseObject();
-    const { name, description, status } = req.body;
+    const { _id, name, description, status, permissionId } = req.body;
 
     try {
-      const existingRole = await prisma.role.findUnique({ where: { name } });
+      const validPermissionIds = (permissionId || []).map(id => new mongoose.Types.ObjectId(id));
 
-      if (existingRole) {
-        retData.status = "error";
-        retData.code = 400;
-        retData.httpCode = 400;
-        retData.msg = AppHelpers.ResponseMessages.ROLE_EXIST;
-        return AppHelpers.Utils.cRes(res, retData);
+      let role;
+
+      if (_id) {
+        // Update existing role
+        role = await Role.findByIdAndUpdate(
+          _id,
+          {
+            $set: {
+              name,
+              description: description ?? null,
+              status: typeof status !== "undefined" ? status : true,
+              permissionId: validPermissionIds,
+            }
+          },
+          { new: true } // return updated document
+        );
+        retData.msg = AppHelpers.ResponseMessages.ROLE_UPDATED;
+      } else {
+        // Create new role
+        role = await Role.create({
+          name,
+          description: description ?? null,
+          status: typeof status !== "undefined" ? status : true,
+          permissionId: validPermissionIds,
+        });
+        retData.msg = AppHelpers.ResponseMessages.ROLE_CREATED;
       }
-
-      const role = await prisma.role.create({
-        data: { name, description: description ?? null, status: status ?? true },
-      });
 
       retData.status = "success";
       retData.code = 200;
       retData.httpCode = 200;
-      retData.msg = AppHelpers.ResponseMessages.ROLE_CREATED;
       retData.data = role;
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
-      return Controller.handleError(res, err, "ERROR in createRole");
+      return Controller.handleError(res, err, "ERROR in createOrUpdateRole");
     }
   },
-
+  
   list: async (req, res) => {
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const roles = await prisma.role.findMany({
-        orderBy: { createdAt: "desc" },
-        select: { id: true, name: true, description: true, status: true, createdAt: true, updatedAt: true },
+      // Fetch all roles
+      const roles = await Role.find().sort({ createdAt: -1 }).lean();
+
+      // Fetch all permissions
+      const permissions = await Permission.find().lean();
+
+      // Fetch all modules
+      const modules = await Module.find().lean();
+
+      // Map modules by id for fast lookup
+      const moduleMap = {};
+      modules.forEach((mod) => {
+        moduleMap[String(mod._id)] = mod.name;
+      });
+
+      // Map permissions by module
+      const rolesWithModules = roles.map((role) => {
+        const modulesWithPermissions = {};
+        // Initialize all modules with empty arrays
+        modules.forEach((mod) => {
+          modulesWithPermissions[mod.name] = [];
+        });
+
+        // Loop through role's permission IDs
+        role.permissionId.forEach((permId) => {
+          // Find the permission object
+          const perm = permissions.find((p) => String(p._id) === String(permId));
+          if (perm) {
+            const moduleName = moduleMap[String(perm.module)];
+            if (moduleName) {
+              modulesWithPermissions[moduleName].push({
+                id: perm._id,
+                name: perm.name,
+              });
+            }
+          }
+        });
+
+        return {
+          ...role,
+          permissionsByModule: modulesWithPermissions,
+        };
       });
 
       retData.status = "success";
       retData.code = 200;
       retData.httpCode = 200;
-      retData.msg = roles.length
+      retData.msg = rolesWithModules.length
         ? AppHelpers.ResponseMessages.RECORDS_FOUND
         : AppHelpers.ResponseMessages.NO_RECORDS_FOUND;
-      retData.data = roles;
+      retData.data = rolesWithModules;
 
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
@@ -72,10 +128,7 @@ const Controller = {
     const { id } = req.params;
 
     try {
-      const role = await prisma.role.findUnique({
-        where: { id: parseInt(id) },
-        select: { id: true, name: true, description: true, status: true, createdAt: true, updatedAt: true },
-      });
+      const role = await Role.findById(id);
 
       if (!role) {
         retData.status = "error";
@@ -92,6 +145,7 @@ const Controller = {
       retData.data = role;
 
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in viewRole");
     }
@@ -102,7 +156,7 @@ const Controller = {
     const { id, name, description, status } = req.body;
 
     try {
-      const existingRole = await prisma.role.findUnique({ where: { id: parseInt(id) } });
+      const existingRole = await Role.findById(id);
       if (!existingRole) {
         retData.status = "error";
         retData.code = 404;
@@ -111,15 +165,15 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const updatedRole = await prisma.role.update({
-        where: { id: parseInt(id) },
-        data: {
+      const updatedRole = await Role.findByIdAndUpdate(
+        id,
+        {
           name: name ?? existingRole.name,
           description: description ?? existingRole.description,
-          status: status ?? existingRole.status,
+          status: typeof status !== "undefined" ? status : existingRole.status,
         },
-        select: { id: true, name: true, description: true, status: true, createdAt: true, updatedAt: true },
-      });
+        { new: true }
+      );
 
       retData.status = "success";
       retData.code = 200;
@@ -128,6 +182,7 @@ const Controller = {
       retData.data = updatedRole;
 
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in updateRole");
     }
@@ -138,7 +193,7 @@ const Controller = {
     const { roleId } = req.params;
 
     try {
-      const existingRole = await prisma.role.findUnique({ where: { id: parseInt(roleId) } });
+      const existingRole = await Role.findById(roleId);
       if (!existingRole) {
         retData.status = "error";
         retData.code = 404;
@@ -147,7 +202,7 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      await prisma.role.delete({ where: { id: parseInt(roleId) } });
+      await Role.findByIdAndDelete(roleId);
 
       retData.status = "success";
       retData.code = 200;
@@ -155,6 +210,7 @@ const Controller = {
       retData.msg = AppHelpers.ResponseMessages.ROLE_DELETED;
 
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in deleteRole");
     }
@@ -165,7 +221,7 @@ const Controller = {
     const { id, status } = req.body;
 
     try {
-      if (!id || typeof status !== "boolean") {
+      if (!id || typeof status === "undefined") {
         retData.status = "error";
         retData.code = 400;
         retData.httpCode = 400;
@@ -173,7 +229,7 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const existingRole = await prisma.role.findUnique({ where: { id: parseInt(id) } });
+      const existingRole = await Role.findById(id);
       if (!existingRole) {
         retData.status = "error";
         retData.code = 404;
@@ -182,11 +238,11 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const updatedRole = await prisma.role.update({
-        where: { id: parseInt(id) },
-        data: { status },
-        select: { id: true, name: true, description: true, status: true, updatedAt: true },
-      });
+      const updatedRole = await Role.findByIdAndUpdate(
+        id,
+        { status },
+        { new: true }
+      );
 
       retData.status = "success";
       retData.code = 200;
@@ -195,6 +251,7 @@ const Controller = {
       retData.data = updatedRole;
 
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in changeStatus");
     }

@@ -1,12 +1,17 @@
-const prisma = require("../../prismaClient.js");
-const AppHelpers = require("../helpers/index.js");
+const AppHelpers = global.AppHelpers;
 const _ = require("lodash");
+
+// Import MongoDB Models
+const Admin = require("../models/admin.model");
+// const User = require("../models/User");
+// const Agent = require("../models/Agent");
 
 const Authenticate = async (req, res, next) => {
   let retData = AppHelpers.Utils.responseObject();
 
   try {
     const authHeader = req.headers["authorization"];
+
     if (_.isEmpty(authHeader)) {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -18,6 +23,7 @@ const Authenticate = async (req, res, next) => {
     }
 
     const [tokenPrefix, token] = authHeader.split(" ");
+
     if (tokenPrefix !== "Bearer" || !token) {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -28,7 +34,9 @@ const Authenticate = async (req, res, next) => {
       });
     }
 
+    // 🔐 Decode JWT
     const decoded = await AppHelpers.DecodeJWTToken(token);
+
     if (!decoded?.data?.id || !decoded?.data?.userType) {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -43,12 +51,9 @@ const Authenticate = async (req, res, next) => {
 
     let user;
 
-    if (userType === "user" && prisma.appUser) {
-      user = await prisma.appUser.findUnique({ where: { id } });
-    } else if (userType === "agent" && prisma.agent) {
-      user = await prisma.agent.findUnique({ where: { id } });
-    } else if (userType === "admin" && prisma.admin) {
-      user = await prisma.admin.findUnique({ where: { id } });
+    // 👇 Fetch Based On userType
+    if (userType === "admin") {
+      user = await Admin.findById(id).lean();
     } else {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -59,6 +64,7 @@ const Authenticate = async (req, res, next) => {
       });
     }
 
+    // If user not found
     if (!user) {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -69,7 +75,9 @@ const Authenticate = async (req, res, next) => {
       });
     }
 
-    const dbTokenVersion = user.tokenVersion ?? user.token_version ?? 0;
+    // Token version check
+    const dbTokenVersion = user.tokenVersion || user.token_version || 0;
+
     if (tokenVersionFromJWT !== dbTokenVersion) {
       return AppHelpers.Utils.cRes(res, {
         ...retData,
@@ -80,10 +88,13 @@ const Authenticate = async (req, res, next) => {
       });
     }
 
+    // Attach user to request
     req.user = { ...user, userType };
+
     next();
   } catch (err) {
     AppHelpers.ErrorLogger("ERROR in Authenticate Middleware", err);
+
     const msg =
       err.name === "TokenExpiredError"
         ? "Your session has timed out. Please log in again."

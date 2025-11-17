@@ -14,7 +14,7 @@ const GenJWTToken = function (data, expiresIn = '6h') {
       data.tokenVersion = data.token_version;
     }
 
-    const token = JWT.sign({ data }, process.env.accessTokenSecret, { expiresIn });
+    const token = JWT.sign({ data }, process.env.JWT_SECRET, { expiresIn });
     return token;
   } catch (err) {
     console.error("Error in GenJWTToken:", err);
@@ -29,7 +29,7 @@ const DecodeJWTToken = function (token) {
   if (!token) throw new Error("Token is required");
 
   try {
-    return JWT.verify(token, process.env.accessTokenSecret);
+    return JWT.verify(token, process.env.JWT_SECRET);
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       throw new Error('Token has expired');

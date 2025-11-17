@@ -1,20 +1,20 @@
-const prisma = require("../../../models/index.js");
-
+const Admin = require("../../../models/admin.model");
 const userHelper = {
-  // Get admin profile data
+  // ---------------------------------------
+  // Get Admin Profile Data
+  // ---------------------------------------
   getAdminProfileData: async (userId) => {
     try {
-      const user = await prisma.admin.findUnique({
-        where: { id: userId },
-        select: {
-          id: false,          // exclude id (similar to "_id": 0)
-          name: true,
-          email: true,
-          password: true,
-          roleId: true,
-          createdAt: true,
-        },
-      });
+      const user = await Admin.findById(userId)
+        .select({
+          _id: 0,       // exclude _id
+          name: 1,
+          email: 1,
+          password: 1,
+          roleId: 1,
+          createdAt: 1
+        })
+        .lean();
 
       if (!user) {
         throw new Error("Admin not found");
@@ -25,53 +25,64 @@ const userHelper = {
         user_type: "admin",
         isLoggedIn: "true",
       };
-    } catch (error) {
-      throw error;
+    } catch (err) {
+      throw err;
     }
   },
 
-  // Get all app users
+  // ---------------------------------------
+  // Get All Users (App Users)
+  // ---------------------------------------
   getAllUsers: async () => {
-    const users = await prisma.appUser.findMany();
-    return users;
+    try {
+      const users = await AppUser.find().lean();
+      return users;
+    } catch (err) {
+      throw err;
+    }
   },
 
-  // Get app user profile data
+  // ---------------------------------------
+  // Get Profile Data for App User
+  // ---------------------------------------
   getProfileData: async (userId) => {
-    const user = await prisma.appUser.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        country_code: true,
-        phone_number: true,
-        password: true,
-        email: true,
-        nif: true,
-        patent_number: true,
-        first_name: true,
-        last_name: true,
-        dob: true,
-        addressDetails: true,
-        is_admin_verified: true,
-        kycFileNames: true,
-        account_id: true,
-        is_name_approved: true,
-        current_balance: true,
-        createdAt: true,
-        is_kyc_approved: true,
-        is_name_update: true,
-        is_block_user: true,
-      },
-    });
+    try {
+      const user = await AppUser.findById(userId)
+        .select({
+          _id: 1,
+          country_code: 1,
+          phone_number: 1,
+          password: 1,
+          email: 1,
+          nif: 1,
+          patent_number: 1,
+          first_name: 1,
+          last_name: 1,
+          dob: 1,
+          addressDetails: 1,
+          is_admin_verified: 1,
+          kycFileNames: 1,
+          account_id: 1,
+          is_name_approved: 1,
+          current_balance: 1,
+          createdAt: 1,
+          is_kyc_approved: 1,
+          is_name_update: 1,
+          is_block_user: 1,
+        })
+        .lean();
 
-    if (!user) {
-      throw new Error("User not found");
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      return {
+        ...user,
+        user_type: "user",
+      };
+    } catch (err) {
+      throw err;
     }
-
-    return {
-      ...user,
-      user_type: "user",
-    };
   },
 };
 
