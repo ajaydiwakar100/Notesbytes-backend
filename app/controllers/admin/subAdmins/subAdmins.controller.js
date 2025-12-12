@@ -30,7 +30,7 @@ const Controller = {
       state,
       city,
       role,
-      user_type,
+      //user_type,
       status
     } = req.body;
 
@@ -60,7 +60,7 @@ const Controller = {
         country,
         state,
         city,
-        user_type,
+        //user_type,
         status: status ?? true,
         password: hashedPassword,
         roleId: role ? new mongoose.Types.ObjectId(role) : null,
@@ -90,7 +90,7 @@ const Controller = {
         country: admin.country,
         state: admin.state,
         city: admin.city,
-        user_type: admin.user_type,
+        //user_type: admin.user_type,
         status: admin.status,
         roleId: admin.roleId,
         is_password_reset_required: admin.is_password_reset_required,
@@ -118,13 +118,11 @@ const Controller = {
 
     try {
       // Fetch all sub-admin users
-      const subAdmins = await Admin.find({ 
-          user_type: { $in: ["Seller", "Buyer"] }
-      })
-        .sort({ createdAt: -1 })
-        .lean();
+      const subAdmins = await Admin.find({ user_type: "subadmin" })
+      .sort({ createdAt: -1 })
+      .lean();
 
-      console.log(subAdmins);
+
 
       // Fetch all roles
       const roles = await Role.find().lean();
@@ -291,8 +289,8 @@ const Controller = {
         country: req.body.country,
         state: req.body.state,
         city: req.body.city,
-        roleId: req.body.roleId,
-        user_type: req.body.user_type,
+        roleId: req.body.role,
+        user_type: "subadmin",
         status: req.body.status,
         updatedAt: new Date(),
       };
@@ -319,6 +317,58 @@ const Controller = {
       return Controller.handleError(res, err, "ERROR in updateSubAdmin");
     }
   },
+
+  updateStatus: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { id, status } = req.body;
+
+      // Validate ID
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = AppHelpers.ResponseMessages.INVALID_ID;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Validate status
+      if (status === undefined || status === null || status === "") {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = "Status is required.";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Update only status
+      const updatedUser = await Admin.findByIdAndUpdate(
+        id,
+        { status, updatedAt: new Date() },
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 404;
+        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = "Status updated successfully";
+      retData.data = updatedUser;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in updateStatus");
+    }
+  }
 
 };
 

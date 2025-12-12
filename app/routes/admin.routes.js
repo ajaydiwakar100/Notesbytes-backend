@@ -8,9 +8,16 @@ const permissionController = require("../controllers/admin/rolesPermission/permi
 const rolesPermissionController = require("../controllers/admin/rolesPermission/rolesPermission.controller");
 const getAllSettingsController = require("../controllers/admin/gobalSettings/gobalSettings.controller");
 const subAdminsController = require("../controllers/admin/subAdmins/subAdmins.controller");
+const endUserController = require("../controllers/admin/endusers/endUsers.controller");
+const endUserValidation = require("../controllers/admin/endusers/validation");
+const documentController = require("../controllers/admin/document/document.controller");
+const documentValidation = require("../controllers/admin/document/validation");
 
 const validate = require("../middleware/validate");
 const Authenticate = require("../middleware/authenticate");
+const createUploader = require("../helpers/upload.helper.js");
+const uploadDocument = createUploader("documents"); // folder name
+
 
 module.exports = function(app) {
   const router = express.Router();
@@ -31,6 +38,7 @@ module.exports = function(app) {
   // Sub admin
   router.get("/sub-admin/list",  Authenticate, subAdminsController.list);
   router.post("/sub-admin/create", validate(subAdminsSchemas.create), Authenticate,  subAdminsController.create);
+  router.put("/sub-admin/change-status", Authenticate,  subAdminsController.updateStatus);
   router.post("/sub-admin/update/:id", validate(subAdminsSchemas.create), Authenticate,  subAdminsController.update);
   router.get("/sub-admin/view/:id", Authenticate,  subAdminsController.details);
 
@@ -58,6 +66,24 @@ module.exports = function(app) {
   router.post("/permission/update", validate(validationSchemas.permissionSchemas.create), Authenticate,  permissionController.update);
   router.post("/permission/delete", validate(validationSchemas.permissionSchemas.create),  Authenticate, permissionController.delete);
   router.get("/permission/view/:id", Authenticate, permissionController.view);
+
+
+  // buyers/sellers
+  router.get("/end-users/list",  Authenticate, endUserController.getList);
+  router.post("/end-users/create", validate(endUserValidation.endUserSchemas.create), Authenticate,  endUserController.create);
+  router.put("/end-users/change-status", Authenticate,  endUserController.updateStatus);
+  router.get("/end-users/view/:id", Authenticate,  endUserController.details);
+  //router.post("/end-users/update/:id", validate(subAdminsSchemas.create), Authenticate,  endUserController.);
+  router.get("/end-users/view/:id/referrals", Authenticate, endUserController.referrals);
+
+
+  // Document 
+  router.get("/document/list",  Authenticate, documentController.getList);
+  router.post("/document/create", Authenticate, uploadDocument.single("file"), validate(documentValidation.create), documentController.create);
+  router.put("/document/change-status", Authenticate,  documentController.updateStatus);
+  router.get("/document/view/:id", Authenticate,  documentController.details);
+  router.put("/document/approved-reject-status", Authenticate,  documentController.updateApprovalStatus);
+  router.post("/document/delete", Authenticate, documentController.delete);
 
   app.use("/api/admin", router);
 };

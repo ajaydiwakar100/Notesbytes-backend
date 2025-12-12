@@ -1,0 +1,285 @@
+const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
+const { User } = require("../../../models/index.js");
+const passwordHelper = require("../../../helpers/password.helper");
+const AppHelpers = require("../../../helpers/index.js");
+const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
+
+
+const Controller = {
+
+  // ERROR HANDLER
+  handleError: (res, err, msg = "Internal server error") => {
+    AppHelpers.ErrorLogger(msg, err);
+    const retData = AppHelpers.Utils.responseObject();
+    retData.status = "error";
+    retData.code = 500;
+    retData.httpCode = 500;
+    retData.msg = err?.message || msg;
+    return AppHelpers.Utils.cRes(res, retData);
+  },
+
+  // --------------------------------------------------------
+  // CREATE USER (buyer / subadmin) WITH PROFILE PIC
+  // --------------------------------------------------------
+  create: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const {
+        name,
+        email,
+        phone,
+        address,
+        country,
+        state,
+        city,
+        pincode,
+        userType,
+        status,
+        referredBy
+      } = req.body;
+
+      // Generate referral code if not provided
+      const referralCode = await generateUniqueReferralCode(name);
+
+      // Check email exists
+      const existingUser = await User.findOne({ email });
+
+      if (existingUser) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = AppHelpers.ResponseMessages.USER_EXIST;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Generate Password
+      const password = await passwordHelper.generatePassword(10);
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // profile picture handling
+      let profilePicture = null;
+      if (req.file) {
+        profilePicture = `${process.env.BASE_URL}/uploads/users/${req.file.filename}`;
+      }
+
+      const user = await User.create({
+        name,
+        email,
+        phone,
+        address,
+        country,
+        state,
+        city,
+        pincode,
+        userType,
+        profilePicture,
+        password: hashedPassword,
+        referralCode: referralCode,
+        referredBy,
+        status: status ?? true,
+      });
+
+       // Creaete refferal users 
+      if (referredBy) {
+        const referrer = await User.findOne({ referralCode: referredBy });
+        if (referrer) {
+          referrer.referralCommission += 100;
+          await referrer.save();
+        }
+      }
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = AppHelpers.ResponseMessages.END_USER_CREATED;
+      retData.data = user;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in create");
+    }
+  },
+
+  // --------------------------------------------------------
+  // LIST USERS + PROFILE PIC PATH
+  // --------------------------------------------------------
+  getList: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { user_type } = req.query;
+      console.log(user_type);
+      let filter = {};
+      if (user_type && user_type !== "all") {
+        filter.userType = user_type;
+      }
+
+      const users = await User.find(filter)
+        .sort({ createdAt: -1 })
+        .lean();
+
+      // add full image path
+      users.forEach(u => {
+        if (u.profilePicture && !u.profilePicture.includes("http")) {
+          u.profilePicture = `${process.env.BASE_URL}/${u.profilePicture}`;
+        }
+      });
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = users.length
+        ? AppHelpers.ResponseMessages.RECORDS_FOUND
+        : AppHelpers.ResponseMessages.NO_RECORDS_FOUND;
+
+      retData.data = users;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in getList");
+    }
+  },
+
+  // --------------------------------------------------------
+  // USER DETAILS WITH PROFILE PIC PATH
+  // --------------------------------------------------------
+  details: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { id } = req.params;
+
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = "Invalid ID";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      const user = await User.findById(id).lean();
+
+      if (!user) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 404;
+        retData.msg = "User not found";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      if (user.profilePicture && !user.profilePicture.includes("http")) {
+        user.profilePicture = `${process.env.BASE_URL}/${user.profilePicture}`;
+      }
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = AppHelpers.ResponseMessages.RECORDS_FOUND;
+      retData.data = user;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in details");
+    }
+  },
+
+  // --------------------------------------------------------
+  // UPDATE ONLY STATUS
+  // --------------------------------------------------------
+  updateStatus: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { id, status } = req.body;
+
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = AppHelpers.ResponseMessages.INVALID_ID;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      const updatedUser = await User.findByIdAndUpdate(
+        id,
+        { status, updatedAt: new Date() },
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 404;
+        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = "Status updated successfully";
+      retData.data = updatedUser;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in updateStatus");
+    }
+  },
+
+  // --------------------------------------------------------
+  // GET REFERRAL USERS OF A USER
+  // --------------------------------------------------------
+  referrals: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { id } = req.params;
+
+      // Validate ID
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = "Invalid ID";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Check if user exists
+      const mainUser = await User.findById(id).lean();
+
+      if (!mainUser) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 404;
+        retData.msg = "User not found";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Fetch referral users
+      const referralUsers = await User.find({ referredBy: mainUser.referralCode })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = "Referral users fetched successfully";
+      retData.data = referralUsers;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in referrals");
+    }
+  },
+
+
+};
+
+module.exports = Controller;
