@@ -8,10 +8,8 @@ const path = require("path");
  */
 const createUploader = (folderName) => {
 
-    // Build full path: /uploads/<folderName>
     const uploadDir = path.join(__dirname, `../../uploads/${folderName}`);
 
-    // Create directory if missing
     if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -26,7 +24,32 @@ const createUploader = (folderName) => {
         },
     });
 
-    return multer({ storage });
+    // 🔐 FILE VALIDATION
+    const fileFilter = (req, file, cb) => {
+
+        // Main document
+        if (file.fieldname === "file") {
+            if (
+                file.mimetype === "application/pdf" ||
+                file.mimetype.includes("word")
+            ) {
+                return cb(null, true);
+            }
+            return cb(new Error("Only PDF or DOCX files are allowed"));
+        }
+
+        // Document image
+        if (file.fieldname === "docImage") {
+            if (file.mimetype.startsWith("image/")) {
+                return cb(null, true);
+            }
+            return cb(new Error("Only image files are allowed"));
+        }
+
+        cb(new Error("Unexpected field"));
+    };
+
+    return multer({ storage, fileFilter });
 };
 
 module.exports = createUploader;

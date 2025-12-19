@@ -24,82 +24,88 @@ const Controller = {
   // --------------------------------------------------------
   create: async (req, res) => {
     const retData = AppHelpers.Utils.responseObject();
-
     try {
       const {
         name,
         email,
         phone,
-        address,
-        country,
-        state,
-        city,
-        pincode,
-        userType,
-        status,
-        referredBy
+        password,
       } = req.body;
 
-      // Generate referral code if not provided
-      const referralCode = await generateUniqueReferralCode(name);
-
-      // Check email exists
-      const existingUser = await User.findOne({ email });
-
-      if (existingUser) {
+      // Check if email already exists
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
         retData.status = "error";
         retData.code = 400;
         retData.httpCode = 400;
-        retData.msg = AppHelpers.ResponseMessages.USER_EXIST;
+        retData.msg = AppHelpers.ResponseMessages.EMAIL_OR_INVALID_ID; // e.g., "User with this email already exists"
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      // Generate Password
-      const password = await passwordHelper.generatePassword(10);
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // profile picture handling
-      let profilePicture = null;
-      if (req.file) {
-        profilePicture = `${process.env.BASE_URL}/uploads/users/${req.file.filename}`;
+      // Check if phone already exists
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.httpCode = 400;
+        retData.msg = AppHelpers.ResponseMessages.EMAIL_OR_INVALID_ID;
+        return AppHelpers.Utils.cRes(res, retData);
       }
 
+      // Generate referral code
+      const referralCode = await generateUniqueReferralCode(name);
+
+      // Hash password (REMOVE this if using schema pre-save hook)
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const userType = "both";
+
+      // Create user
       const user = await User.create({
         name,
         email,
         phone,
-        address,
-        country,
-        state,
-        city,
-        pincode,
-        userType,
-        profilePicture,
         password: hashedPassword,
-        referralCode: referralCode,
-        referredBy,
-        status: status ?? true,
+        userType,
+        referralCode,
+        status: 1
       });
 
-       // Creaete refferal users 
-      if (referredBy) {
-        const referrer = await User.findOne({ referralCode: referredBy });
-        if (referrer) {
-          referrer.referralCommission += 100;
-          await referrer.save();
-        }
-      }
+      const updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        {
+          $inc: { token_version: 1 },
+        },
+        { new: true }
+      );
+
+      const token = await AppHelpers.GenJWTToken({
+        userType: "users",
+        id: user._id,
+        tokenVersion: updatedUser.token_version,
+      });
+
+      // Remove password from response
+      const userObj = user.toObject();
+      delete userObj.password;
+     
+      // Send token as HttpOnly cookie (more secure than sending in JSON)
+      res.cookie("userAuthToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV,
+        sameSite: "Strict",
+        maxAge: 6 * 60 * 60 * 1000, // 6 hours
+      });
 
       retData.status = "success";
-      retData.code = 200;
-      retData.httpCode = 200;
+      retData.code = 201;
+      retData.httpCode = 201;
       retData.msg = AppHelpers.ResponseMessages.END_USER_CREATED;
-      retData.data = user;
+      retData.data = userObj;
 
       return AppHelpers.Utils.cRes(res, retData);
 
     } catch (err) {
-      return Controller.handleError(res, err, "ERROR in create");
+      return Controller.handleError(res, err, "ERROR in end-user create");
     }
   },
 
@@ -276,6 +282,73 @@ const Controller = {
 
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in referrals");
+    }
+  },
+
+  // --------------------------------------------------------
+  // LOGIN USER (buyer / subadmin)
+  // --------------------------------------------------------
+  login: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+    try {
+      const { email, password } = req.body;
+
+      // Find user by email
+      const user = await User.findOne({ email });
+      if (!user) {
+        retData.status = "error";
+        retData.code = 401;
+        retData.httpCode = 401;
+        retData.msg = AppHelpers.ResponseMessages.INVALID_LOGIN;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Compare password
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        retData.status = "error";
+        retData.code = 401;
+        retData.httpCode = 401;
+        retData.msg = AppHelpers.ResponseMessages.INVALID_LOGIN;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Increment token version for security (optional)
+      const updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        { $inc: { token_version: 1 } },
+        { new: true }
+      );
+
+      // Generate JWT token
+      const token = await AppHelpers.GenJWTToken({
+        userType: "users",
+        id: user._id,
+        tokenVersion: updatedUser.token_version,
+      });
+
+      // Remove password from response
+      const userObj = user.toObject();
+      delete userObj.password;
+
+      // Send token as HttpOnly cookie
+      res.cookie("userAuthToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "Strict",
+        maxAge: 6 * 60 * 60 * 1000, // 6 hours
+      });
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = AppHelpers.ResponseMessages.LOGIN_SUCCESS; // e.g., "Login successful"
+      retData.data = userObj;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in end-user login");
     }
   },
 

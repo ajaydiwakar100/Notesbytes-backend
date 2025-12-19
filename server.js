@@ -43,10 +43,12 @@ mongoose
 /* ---------------------------
    MIDDLEWARES
 ----------------------------*/
+
+const allowedOrigin = ["http://localhost:5173"];
 app.use(helmet());
 app.disable("x-powered-by");
 app.use(logger("dev"));
-app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] }));
+app.use(cors({ origin: allowedOrigin, methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

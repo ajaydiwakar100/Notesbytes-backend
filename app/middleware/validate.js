@@ -1,25 +1,25 @@
-const validate = (schema, property) => {
+const validate = (schema) => {
   return (req, res, next) => {
-    const { error } = schema.validate(req.body);
-    const valid = error == null;
+    const { error, value } = schema.validate(req.body, {
+      abortEarly: true,
+      allowUnknown: false, // only allow fields in schema
+    });
 
-    if (valid) {
-      next();
-    } else {
-      const { details } = error;
-      const message = details.map(i => i.message).join(',');
-
-      console.log("Joi error", message);
-      console.log(error);
-
-      const retData = {
-        status: "error",
-        statusCode: 400,
-        msg: message,
-        data: [{ message: message }]
-      };
-      res.status(retData.statusCode).json(retData);
+    if (!error) {
+      req.body = value; // ✅ use validated & sanitized data
+      return next();
     }
+
+    const message = error.details.map(i => i.message).join(', ');
+    console.log("Joi error:", message);
+
+    const retData = {
+      status: "error",
+      statusCode: 400,
+      msg: message,
+      data: [{ message }],
+    };
+    return res.status(retData.statusCode).json(retData);
   };
 };
 

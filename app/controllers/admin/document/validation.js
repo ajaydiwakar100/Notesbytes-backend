@@ -1,131 +1,156 @@
 const Joi = require("joi");
+
 const objectId = Joi.string().regex(/^[0-9a-fA-F]{24}$/); // MongoDB ObjectId
 
 const documentSchemas = {
 
-  // CREATE DOCUMENT VALIDATION
-  create: Joi.object().keys({
-    name: Joi.string().trim().required(),
+  // --------------------------------------------------
+  // CREATE DOCUMENT / NOTES
+  // --------------------------------------------------
+  create: Joi.object({
+    title: Joi.string().trim().required(),
 
-    type: Joi.string()
-      .valid("pdf", "docx")
-      .required(),
-
-    prize: Joi.number()
-      .positive()
-      .required(),
-
-    file: Joi.string()
-      .trim()
-      .required(),
-
-    uploadedBy: objectId.required(),
-
-    noOfDownloads: Joi.number()
-      .integer()
-      .min(0)
-      .default(0),
-
-    rating: Joi.number()
-      .integer()
-      .min(0)
-      .max(5)
-      .default(0),
-
-    notes: Joi.string()
+    description: Joi.string()
       .allow("", null)
       .optional(),
 
-    status: Joi.number()
-      .valid(0, 1)
-      .default(1),
+    shortDescription: Joi.string()
+      .allow("", null)
+      .optional(),
+
+    price: Joi.number()
+      .positive()
+      .required(),
+
+    author: Joi.string()
+      .trim()
+      .optional(),
+
+    subject: Joi.string()
+      .trim()
+      .optional(),
+
+    exam: Joi.string()
+      .trim()
+      .optional(),
+
+    language: Joi.string()
+      .trim()
+      .optional(),
+
+    pages: Joi.number()
+      .integer()
+      .positive()
+      .optional(),
+
+    format: Joi.string()
+      .valid("PDF", "DOCX")
+      .default("PDF"),
+
+    topics: Joi.array()
+      .items(Joi.string().trim())
+      .optional(),
+
+    highlights: Joi.array()
+      .items(Joi.string().trim())
+      .optional(),
+
+    tags: Joi.string()
+      .trim()
+      .optional(),
+
+    uploadedBy: objectId.required(),
 
     approvalStatus: Joi.string()
       .valid("pending", "approved", "rejected")
       .default("pending"),
 
-    fileSize: Joi.number().optional(),
+    status: Joi.number()
+      .valid(0, 1)
+      .default(1),
 
-    fileMimeType: Joi.string().optional(),
+    isFeature: Joi.boolean()
+      .default(false),
 
-    downloadedBy: Joi.array().items(objectId).optional(),
-
-    reviews: Joi.array()
-      .items(
-        Joi.object({
-          user: objectId.required(),
-          rating: Joi.number().min(1).max(5).required(),
-          comment: Joi.string().allow("", null),
-          createdAt: Joi.date().optional(),
-        })
-      )
-      .optional(),
-
-    // Uploaded file (multer)
-    file: Joi.any().optional(),
-  }),
-
-  
-  // UPDATE DOCUMENT VALIDATION
-  update: Joi.object().keys({
-    name: Joi.string().trim().optional(),
-
-    type: Joi.string()
-      .valid("pdf", "docx")
-      .optional(),
-
-    prize: Joi.number()
-      .positive()
-      .optional(),
-
-    filePath: Joi.string()
-      .trim()
-      .optional(),
-
-    uploadedBy: objectId.optional(),
-
+    // These are auto-managed (do NOT send from client)
     noOfDownloads: Joi.number()
       .integer()
       .min(0)
-      .optional(),
+      .default(0),
 
     rating: Joi.number()
-      .integer()
       .min(0)
       .max(5)
-      .optional(),
+      .default(0),
 
-    notes: Joi.string()
+    reviewsCount: Joi.number()
+      .integer()
+      .min(0)
+      .default(0)
+  }),
+
+  // --------------------------------------------------
+  // UPDATE DOCUMENT / NOTES
+  // --------------------------------------------------
+  update: Joi.object({
+    title: Joi.string().trim().optional(),
+
+    description: Joi.string()
       .allow("", null)
       .optional(),
 
-    status: Joi.number()
-      .valid(0, 1)
+    price: Joi.number()
+      .positive()
+      .optional(),
+
+    author: Joi.string()
+      .trim()
+      .optional(),
+
+    subject: Joi.string()
+      .trim()
+      .optional(),
+
+    exam: Joi.string()
+      .trim()
+      .optional(),
+
+    language: Joi.string()
+      .trim()
+      .optional(),
+
+    pages: Joi.number()
+      .integer()
+      .positive()
+      .optional(),
+
+    format: Joi.string()
+      .valid("PDF", "DOCX")
+      .optional(),
+
+    topics: Joi.array()
+      .items(Joi.string().trim())
+      .optional(),
+
+    highlights: Joi.array()
+      .items(Joi.string().trim())
+      .optional(),
+
+    tags: Joi.string()
+      .trim()
       .optional(),
 
     approvalStatus: Joi.string()
       .valid("pending", "approved", "rejected")
       .optional(),
 
-    fileSize: Joi.number().optional(),
-
-    fileMimeType: Joi.string().optional(),
-
-    downloadedBy: Joi.array().items(objectId).optional(),
-
-    reviews: Joi.array()
-      .items(
-        Joi.object({
-          user: objectId.required(),
-          rating: Joi.number().min(1).max(5).required(),
-          comment: Joi.string().allow("", null),
-          createdAt: Joi.date().optional(),
-        })
-      )
+    status: Joi.number()
+      .valid(0, 1)
       .optional(),
 
-    file: Joi.any().optional(),
-  }),
+    isFeature: Joi.boolean()
+      .optional()
+  })
 };
 
-module.exports = documentSchemas ;
+module.exports = documentSchemas;

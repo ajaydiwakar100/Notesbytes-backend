@@ -9,12 +9,15 @@ const rolesPermissionController = require("../controllers/admin/rolesPermission/
 const getAllSettingsController = require("../controllers/admin/gobalSettings/gobalSettings.controller");
 const subAdminsController = require("../controllers/admin/subAdmins/subAdmins.controller");
 const endUserController = require("../controllers/admin/endusers/endUsers.controller");
-const endUserValidation = require("../controllers/admin/endusers/validation");
+const { endUserSchemas } = require("../controllers/admin/endusers/validation.js");
 const documentController = require("../controllers/admin/document/document.controller");
 const documentValidation = require("../controllers/admin/document/validation");
+const testimonialController = require("../controllers/admin/testimonial/testimonal.controller");
+const cmsController   = require("../controllers/admin/cms/cms.controller");
 
 const validate = require("../middleware/validate");
 const Authenticate = require("../middleware/authenticate");
+const userAuth = require("../middleware/userAuth");
 const createUploader = require("../helpers/upload.helper.js");
 const uploadDocument = createUploader("documents"); // folder name
 
@@ -43,7 +46,9 @@ module.exports = function(app) {
   router.get("/sub-admin/view/:id", Authenticate,  subAdminsController.details);
 
   // Global Settings
-  router.get("/gobal-settings/get-gobal-settings-list",  Authenticate, getAllSettingsController.getAllSettings);
+  router.get("/gobal-settings/list",  Authenticate, getAllSettingsController.getSettings);
+  router.post("/gobal-settings/create",  Authenticate, getAllSettingsController.saveSettings);
+  router.post("/gobal-settings/delete",Authenticate, getAllSettingsController.deleteSetting);
 
   // Roles
   router.get("/roles/list", Authenticate,  rolesPermissionController.list);
@@ -70,7 +75,7 @@ module.exports = function(app) {
 
   // buyers/sellers
   router.get("/end-users/list",  Authenticate, endUserController.getList);
-  router.post("/end-users/create", validate(endUserValidation.endUserSchemas.create), Authenticate,  endUserController.create);
+  router.post("/end-users/create", validate(endUserSchemas.create), endUserController.create);
   router.put("/end-users/change-status", Authenticate,  endUserController.updateStatus);
   router.get("/end-users/view/:id", Authenticate,  endUserController.details);
   //router.post("/end-users/update/:id", validate(subAdminsSchemas.create), Authenticate,  endUserController.);
@@ -79,11 +84,36 @@ module.exports = function(app) {
 
   // Document 
   router.get("/document/list",  Authenticate, documentController.getList);
-  router.post("/document/create", Authenticate, uploadDocument.single("file"), validate(documentValidation.create), documentController.create);
+  router.post("/document/create",Authenticate,
+    uploadDocument.fields([
+      { name: "file", maxCount: 1 },
+      { name: "docImage", maxCount: 1 }
+    ]),
+    validate(documentValidation.create),documentController.create
+  );
   router.put("/document/change-status", Authenticate,  documentController.updateStatus);
   router.get("/document/view/:id", Authenticate,  documentController.details);
   router.put("/document/approved-reject-status", Authenticate,  documentController.updateApprovalStatus);
   router.post("/document/delete", Authenticate, documentController.delete);
 
+  // Testimonial
+  router.post("/testimonial/create", Authenticate,testimonialController.create);
+  router.get("/testimonial/list", Authenticate,testimonialController.list);
+  router.post("/testimonial/status", Authenticate,testimonialController.updateStatus);
+  router.post("/testimonial/delete", Authenticate, testimonialController.delete);
+
+  // (open apis ) 
+  router.get("/home/list", cmsController.getHomePage);
+  router.get("/document/detail/:slug",  documentController.detailsBySlug);
+  router.get("/document/getNotes", documentController.getListByFilter);
+  router.get("/document/subjects", documentController.getUniqueSubjects)
+  router.get("/document/exams", documentController.getUniqueExams)
+  router.get("/settings/list",  getAllSettingsController.getSettings);
+
+  // auth
+  router.post("/end-user/register",validate(endUserSchemas.create),endUserController.create);
+  router.post("/end-user/login",validate(endUserSchemas.login),endUserController.login);
+  router.get("/end-user/getNotes", userAuth, documentController.getUploadDocumentByUser);
+  
   app.use("/api/admin", router);
 };
