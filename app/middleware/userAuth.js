@@ -4,7 +4,7 @@ module.exports = (req, res, next) => {
   try {
     // ✅ Read token from cookie
     const token = req.cookies?.userAuthToken;
-
+  
     if (!token) {
       return res.status(401).json({
         status: "error",
@@ -16,7 +16,6 @@ module.exports = (req, res, next) => {
 
     // decoded.data → because you signed { data }
     req.user = decoded.data;
-
     next();
   } catch (err) {
     return res.status(401).json({

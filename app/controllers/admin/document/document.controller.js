@@ -36,7 +36,7 @@ const Controller = {
                 retData.msg = error.details[0].message;
                 return AppHelpers.Utils.cRes(res, retData);
             }
-
+            const uploadedBy = req.user.id;
             const {
                 title,
                 description,
@@ -49,18 +49,18 @@ const Controller = {
                 format,
                 topics,
                 highlights,
-                tags,
-                uploadedBy,
                 approvalStatus,
                 status,
                 isFeature,
                 shortDescription,
+                originalPrice,
+                publishStatus
             } = req.body;
 
             // -------------------------------------
-            // CHECK FILE UPLOAD (FIELDS)
+            // FILE VALIDATION
             // -------------------------------------
-            if (!req.files || !req.files.file || !req.files.file.length) {
+            if (!req.files?.file?.length) {
                 retData.status = "error";
                 retData.code = 400;
                 retData.httpCode = 400;
@@ -68,20 +68,38 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
-            // MAIN DOCUMENT FILE
-            const documentFile = req.files.file[0];
-            const filePath = `uploads/documents/${documentFile.filename}`;
-            const fileSize = documentFile.size;
-            const fileMimeType = documentFile.mimetype;
-
-            // OPTIONAL DOCUMENT IMAGE
-            let docImagePath = "";
-            if (req.files.docImage && req.files.docImage.length) {
-                docImagePath = `uploads/documents/${req.files.docImage[0].filename}`;
+            if (!req.files?.sampleFile?.length) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Sample document is required";
+                return AppHelpers.Utils.cRes(res, retData);
             }
 
             // -------------------------------------
-            // CHECK UPLOADER USER EXISTS
+            // ORIGINAL DOCUMENT
+            // -------------------------------------
+            const originalFile = req.files.file[0];
+            const filePath = originalFile.path.replace(/\\/g, "/");
+            const fileSize = originalFile.size;
+            const fileMimeType = originalFile.mimetype;
+
+            // -------------------------------------
+            // SAMPLE DOCUMENT
+            // -------------------------------------
+            const sampleFile = req.files.sampleFile[0];
+            const sampleFilePath = sampleFile.path.replace(/\\/g, "/");
+
+            // -------------------------------------
+            // THUMBNAIL (OPTIONAL)
+            // -------------------------------------
+            let docImagePath = "";
+            if (req.files.docImage?.length) {
+                docImagePath = req.files.docImage[0].path.replace(/\\/g, "/");
+            }
+
+            // -------------------------------------
+            // CHECK USER
             // -------------------------------------
             const uploaderUser = await User.findById(uploadedBy);
             if (!uploaderUser) {
@@ -92,7 +110,9 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
-            // Generate UNIQUE slug
+            // -------------------------------------
+            // UNIQUE SLUG
+            // -------------------------------------
             let baseSlug = slugify(title, { lower: true, strict: true });
             let slug = baseSlug;
             let count = 1;
@@ -100,7 +120,6 @@ const Controller = {
             while (await Document.findOne({ slug })) {
                 slug = `${baseSlug}-${count++}`;
             }
-
 
             // -------------------------------------
             // CREATE DOCUMENT
@@ -115,26 +134,24 @@ const Controller = {
                 exam,
                 language,
                 pages,
-                format: format ?? "PDF",
-
-                topics: topics ?? [],
-                highlights: highlights ?? [],
-                tags,
-
-                uploadedBy,
+                format,
+                topics: Array.isArray(topics) ? topics : [],
+                highlights: Array.isArray(highlights) ? highlights : [],
+                uploadedBy: uploadedBy,
                 filePath,
+                sampleFile: sampleFilePath,
                 fileSize,
                 fileMimeType,
                 docImage: docImagePath,
-
                 approvalStatus: approvalStatus ?? "pending",
                 status: status ?? 1,
+                publishStatus: publishStatus ?? 0,
                 isFeature: isFeature ?? false,
-
                 noOfDownloads: 0,
                 rating: 0,
                 reviewsCount: 0,
-                shortDescription
+                shortDescription,
+                originalPrice,
             });
 
             retData.status = "success";
@@ -149,6 +166,7 @@ const Controller = {
             return Controller.handleError(res, err, "ERROR in create document");
         }
     },
+
 
 
     // --------------------------------------------------------

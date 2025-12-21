@@ -34,6 +34,10 @@ const documentSchemas = {
       .trim()
       .optional(),
 
+    originalPrice: Joi.string()
+      .trim()
+      .optional(),
+
     language: Joi.string()
       .trim()
       .optional(),
@@ -44,7 +48,6 @@ const documentSchemas = {
       .optional(),
 
     format: Joi.string()
-      .valid("PDF", "DOCX")
       .default("PDF"),
 
     topics: Joi.array()
@@ -55,11 +58,7 @@ const documentSchemas = {
       .items(Joi.string().trim())
       .optional(),
 
-    tags: Joi.string()
-      .trim()
-      .optional(),
-
-    uploadedBy: objectId.required(),
+    //uploadedBy: objectId.required(),
 
     approvalStatus: Joi.string()
       .valid("pending", "approved", "rejected")
@@ -68,6 +67,10 @@ const documentSchemas = {
     status: Joi.number()
       .valid(0, 1)
       .default(1),
+
+    publishStatus: Joi.number()
+      .valid(0, 1)
+      .default(0),
 
     isFeature: Joi.boolean()
       .default(false),
@@ -125,7 +128,6 @@ const documentSchemas = {
       .optional(),
 
     format: Joi.string()
-      .valid("PDF", "DOCX")
       .optional(),
 
     topics: Joi.array()

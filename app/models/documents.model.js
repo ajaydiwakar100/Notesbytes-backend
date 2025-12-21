@@ -23,7 +23,7 @@ const documentSchema = new mongoose.Schema(
 
     // Document Details
     pages: { type: Number },
-    format: { type: String, enum: ["PDF", "DOCX"], default: "PDF" },
+    format: { type: String, enum: ["PDF","DOC","DOCX","PPT","PPTX","Other"], default: "PDF" },
     lastUpdated: { type: String },
 
     // File Info
@@ -70,6 +70,7 @@ const documentSchema = new mongoose.Schema(
     rejectedReason: { type: String, default: null },
     rejectedAt: { type: Date, default: null },
     approvedAt: { type: Date, default: null },
+    publishStatus: { type: Number, enum: [0, 1], default: 0 },
 
     // Feature Flag
     isFeature: { type: Boolean, default: false }

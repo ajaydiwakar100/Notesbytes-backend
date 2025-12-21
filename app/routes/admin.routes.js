@@ -84,13 +84,7 @@ module.exports = function(app) {
 
   // Document 
   router.get("/document/list",  Authenticate, documentController.getList);
-  router.post("/document/create",Authenticate,
-    uploadDocument.fields([
-      { name: "file", maxCount: 1 },
-      { name: "docImage", maxCount: 1 }
-    ]),
-    validate(documentValidation.create),documentController.create
-  );
+  
   router.put("/document/change-status", Authenticate,  documentController.updateStatus);
   router.get("/document/view/:id", Authenticate,  documentController.details);
   router.put("/document/approved-reject-status", Authenticate,  documentController.updateApprovalStatus);
@@ -114,6 +108,17 @@ module.exports = function(app) {
   router.post("/end-user/register",validate(endUserSchemas.create),endUserController.create);
   router.post("/end-user/login",validate(endUserSchemas.login),endUserController.login);
   router.get("/end-user/getNotes", userAuth, documentController.getUploadDocumentByUser);
+
+  // create notes
+  router.post("/end-user/document/create",
+    userAuth,
+    uploadDocument.fields([
+      { name: "file", maxCount: 1 },
+      { name: "sampleFile", maxCount: 1 },
+      { name: "docImage", maxCount: 1 },
+    ]),
+    validate(documentValidation.create),documentController.create
+  );
   
   app.use("/api/admin", router);
 };

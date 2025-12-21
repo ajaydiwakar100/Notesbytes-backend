@@ -91,8 +91,8 @@ const Controller = {
       // Send token as HttpOnly cookie (more secure than sending in JSON)
       res.cookie("userAuthToken", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV,
-        sameSite: "Strict",
+        secure: false, 
+        sameSite: "Lax",
         maxAge: 6 * 60 * 60 * 1000, // 6 hours
       });
 
@@ -331,12 +331,12 @@ const Controller = {
       const userObj = user.toObject();
       delete userObj.password;
 
-      // Send token as HttpOnly cookie
+      // Send token as HttpOnly cookie (more secure than sending in JSON)
       res.cookie("userAuthToken", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Strict",
-        maxAge: 6 * 60 * 60 * 1000, // 6 hours
+        secure: false,      
+        sameSite: "Lax",
+        maxAge: 6 * 60 * 60 * 1000,
       });
 
       retData.status = "success";
