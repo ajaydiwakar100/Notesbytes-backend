@@ -1,9 +1,11 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { Document,User } = require("../../../models/index.js");
+const { Document,User, Wishlist, Cart} = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
 const documentSchemas = require("../document/validation.js");
 const slugify = require("slugify");
+const fs = require("fs");
+const path = require("path");
 
 const Controller = {
 
@@ -16,6 +18,13 @@ const Controller = {
         retData.httpCode = 500;
         retData.msg = err?.message || msg;
         return AppHelpers.Utils.cRes(res, retData);
+    },
+
+    normalizeUploadPath: (fullPath) => {
+        if (!fullPath) return "";
+        const normalized = fullPath.replace(/\\/g, "/");
+        const uploadsIndex = normalized.indexOf("uploads/");
+        return uploadsIndex !== -1? normalized.substring(uploadsIndex): "";
     },
 
     // --------------------------------------------------------
@@ -80,22 +89,22 @@ const Controller = {
             // ORIGINAL DOCUMENT
             // -------------------------------------
             const originalFile = req.files.file[0];
-            const filePath = originalFile.path.replace(/\\/g, "/");
-            const fileSize = originalFile.size;
-            const fileMimeType = originalFile.mimetype;
+            const filePath = originalFile ? Controller.normalizeUploadPath(originalFile.path): null;
+            const fileSize =  originalFile?.size || 0;
+            const fileMimeType = originalFile?.mimetype || null;
 
             // -------------------------------------
             // SAMPLE DOCUMENT
             // -------------------------------------
             const sampleFile = req.files.sampleFile[0];
-            const sampleFilePath = sampleFile.path.replace(/\\/g, "/");
+            const sampleFilePath = sampleFile ? Controller.normalizeUploadPath(sampleFile.path): null;
 
             // -------------------------------------
             // THUMBNAIL (OPTIONAL)
             // -------------------------------------
             let docImagePath = "";
-            if (req.files.docImage?.length) {
-                docImagePath = req.files.docImage[0].path.replace(/\\/g, "/");
+            if (req.files?.docImage?.length) {
+                docImagePath = Controller.normalizeUploadPath(req.files.docImage[0].path);
             }
 
             // -------------------------------------
@@ -166,8 +175,6 @@ const Controller = {
             return Controller.handleError(res, err, "ERROR in create document");
         }
     },
-
-
 
     // --------------------------------------------------------
     // LIST USERS + PROFILE PIC PATH
@@ -505,15 +512,20 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
-            // // Add full file path
-            // if (document.filePath && !document.filePath.includes("http")) {
-            //     document.filePath = `${process.env.BASE_URL}/${document.filePath}`;
-            // }
+            // Add full file path
+            if (document.filePath && !document.filePath.includes("http") && req.user) {
+                document.filePath = `${process.env.BASE_URL}/${document.filePath}`;
+            }else{
+                document.filePath = null;
+            }
 
             if (document.docImage && !document.docImage.includes("http")) {
                 document.docImage = `${process.env.BASE_URL}/${document.docImage}`;
             }
 
+            if (document.sampleFile && !document.sampleFile.includes("http")) {
+                document.sampleFile = `${process.env.BASE_URL}/${document.sampleFile}`;
+            }
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
@@ -665,9 +677,9 @@ const Controller = {
 
             // PRICE FILTER
             if (price) {
-            if (price === "under200") filters.price = { $lt: 200 };
-            if (price === "200-400") filters.price = { $gte: 200, $lte: 400 };
-            if (price === "above400") filters.price = { $gt: 400 };
+                if (price === "under200") filters.price = { $lt: 200 };
+                if (price === "200-400") filters.price = { $gte: 200, $lte: 400 };
+                if (price === "above400") filters.price = { $gt: 400 };
             }
 
             // RATING FILTER
@@ -686,23 +698,442 @@ const Controller = {
             if (sort === "rating") sortQuery = { rating: -1 };
             if (sort === "newest") sortQuery = { createdAt: -1 };
 
+            // Fetch documents
             const documents = await Document.find(filters)
-            .populate("uploadedBy", "name email")
-            .sort(sortQuery)
-            .lean();
+                .populate("uploadedBy", "name email")
+                .sort(sortQuery)
+                .lean();
 
+            // Add full file path
+            const fullUrl = (file) => file && !file.includes("http") ? `${process.env.BASE_URL}/${file}` : file;
+
+            const updatedDocuments = documents.map((doc) => ({
+                ...doc,
+                filePath: fullUrl(doc.filePath),
+                docImage: fullUrl(doc.docImage),
+                sampleFile: fullUrl(doc.sampleFile),
+            }));
 
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
-            retData.data = documents;
+            retData.data = updatedDocuments;
             retData.msg = "Records found";
 
             return AppHelpers.Utils.cRes(res, retData);
         } catch (err) {
             return Controller.handleError(res, err, "ERROR in document list");
         }
-    }
+    },
+
+
+    // --------------------------------------------------------
+    // UPDATE DOCUMENT / NOTES BY SLUG
+    // --------------------------------------------------------
+    updateBySlug: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+        console.log(req.body);
+        try {
+            const { slug } = req.params; // Get slug from URL
+            if (!slug) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Slug is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // -------------------------
+            // FIND DOCUMENT
+            // -------------------------
+            const document = await Document.findOne({ slug });
+            if (!document) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const {
+                title,
+                description,
+                price,
+                author,
+                subject,
+                exam,
+                language,
+                pages,
+                format,
+                topics,
+                highlights,
+                isFeature,
+                shortDescription,
+                originalPrice,
+                publishStatus,
+                status
+            } = req.body;
+
+            
+            // -------------------------    
+            // UPDATE BASIC FIELDS
+            // -------------------------
+            document.title = title ?? document.title;
+            document.description = description ?? document.description;
+            document.shortDescription = shortDescription ?? document.shortDescription;
+            document.price = price ?? document.price;
+            document.originalPrice = originalPrice ?? document.originalPrice;
+            document.author = author ?? document.author;
+            document.subject = subject ?? document.subject;
+            document.exam = exam ?? document.exam;
+            document.language = language ?? document.language;
+            document.pages = pages ?? document.pages;
+            document.format = format ?? document.format;
+            document.publishStatus = publishStatus ?? document.publishStatus;
+            document.status = status ?? document.status;
+            document.isFeature = isFeature ?? document.isFeature;
+
+            // -------------------------
+            // TOPICS & HIGHLIGHTS
+            // -------------------------
+            if (Array.isArray(topics)) document.topics = topics;
+            if (Array.isArray(highlights)) document.highlights = highlights;
+
+            // -------------------------
+            // FILE UPDATES (OPTIONAL)
+            // -------------------------
+            if (req.files?.file?.length) {
+                const originalFile = req.files.file[0];
+                document.filePath = await Controller.normalizeUploadPath(originalFile.path);
+                document.fileSize = originalFile.size;
+                document.fileMimeType = originalFile.mimetype;
+            }
+
+            if (req.files?.sampleFile?.length) {
+                const sampleFile = req.files.sampleFile[0];
+                document.sampleFile = await Controller.normalizeUploadPath(sampleFile.path);
+            }
+
+            if (req.files?.docImage?.length) {
+                document.docImage = await Controller.normalizeUploadPath(req.files.docImage[0].path);
+            }
+
+            // -------------------------
+            // SLUG (ONLY IF TITLE CHANGED)
+            // -------------------------
+            if (title && title !== document.title) {
+                let baseSlug = slugify(title, { lower: true, strict: true });
+                let newSlug = baseSlug;
+                let count = 1;
+
+                while (await Document.findOne({ slug: newSlug, _id: { $ne: document._id } })) {
+                    newSlug = `${baseSlug}-${count++}`;
+                }
+                document.slug = newSlug;
+            }
+
+            document.updatedAt = new Date();
+            await document.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Document updated successfully";
+            retData.data = document;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in update document by slug");
+        }
+    },
+
+    // --------------------------------------------------------
+    // DELETE DOCUMENT / NOTES BY SLUG
+    // --------------------------------------------------------
+    deleteDocumentBySlug: async (req, res) => {
+        try {
+            const { slug } = req.params;
+
+            if (!slug) {
+                return res.status(400).json({ msg: "Slug is required" });
+            }
+
+            const document = await Document.findOne({ slug });
+            if (!document) return res.status(404).json({ msg: "Document not found" });
+
+            // ----------------------
+            // Delete files + folder
+            // ----------------------
+            const files = [document.filePath, document.sampleFile, document.docImage];
+
+            files.forEach((filePath) => {
+            if (!filePath) return;
+
+            const absolutePath = path.join(__dirname, "../../..", filePath.replace(process.env.BASE_URL, ""));
+            if (fs.existsSync(absolutePath)) {
+                fs.unlinkSync(absolutePath); // delete file
+            }
+            });
+
+            // Remove folder if empty
+            const foldersToCheck = [
+                path.dirname(path.join(__dirname, "../../..", document.filePath || "")),
+                path.dirname(path.join(__dirname, "../../..", document.sampleFile || "")),
+                path.dirname(path.join(__dirname, "../../..", document.docImage || "")),
+            ];
+
+            foldersToCheck.forEach((folder) => {
+            if (folder && fs.existsSync(folder) && fs.readdirSync(folder).length === 0) {
+                fs.rmdirSync(folder, { recursive: true });
+            }
+            });
+
+            // Delete DB record
+            await Document.deleteOne({ _id: document._id });
+
+            res.status(200).json({ msg: "Document deleted successfully" });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ msg: "Internal server error" });
+        }
+    },
+
+    // --------------------------------------------------------
+    // UPDATE DOCUMENT PUBLISH STATUS
+    // --------------------------------------------------------
+    updatePublishStatus: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { slug } = req.params;
+            const { publishStatus } = req.body; // 0 or 1
+
+            if (!slug) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Slug is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            if (![0, 1].includes(Number(publishStatus))) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Invalid publish status value";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const document = await Document.findOne({ slug });
+            if (!document) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            document.publishStatus = Number(publishStatus);
+            document.updatedAt = new Date();
+
+            await document.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = `Document ${ publishStatus === 1 ? "published" : "unpublished"} successfully`;
+            retData.data = document;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in update publish status");
+        }
+    },
+
+    // --------------------------------------------------------
+    // ADD TO WISHLIST
+    // --------------------------------------------------------
+    addToWishlist: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { documentId } = req.body; // document/product id
+
+            if (!documentId) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Document ID is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Check if document exists
+            const document = await Document.findById(documentId);
+            if (!document) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            let wishlist = await Wishlist.findOne({ user: req.user.id });
+
+            if (!wishlist) {
+                wishlist = new Wishlist({ user: req.user.id, items: [] });
+            }
+
+            // Check if already in wishlist
+            const exists = wishlist.items.find(
+                (item) => item.product.toString() === documentId
+            );
+
+            if (exists) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Document already in wishlist";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            wishlist.items.push({ product: documentId });
+            await wishlist.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Document added to wishlist";
+            retData.data = wishlist;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in add to wishlist");
+        }
+    },
+
+    // --------------------------------------------------------
+    // ADD TO CART
+    // --------------------------------------------------------
+    addToCart: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { documentId, quantity } = req.body;
+
+            if (!documentId) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Document ID is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Check if document exists
+            const document = await Document.findById(documentId);
+            if (!document) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            let cart = await Cart.findOne({ user: req.user.id });
+
+            if (!cart) {
+                cart = new Cart({ user: req.user.id, items: [] });
+            }
+
+            const existingItem = cart.items.find(
+                (item) => item.product.toString() === documentId
+            );
+
+            if (existingItem) {
+                existingItem.quantity += quantity || 1; // increment quantity
+            } else {
+                cart.items.push({ product: documentId, quantity: quantity || 1 });
+            }
+
+            await cart.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Document added to cart";
+            retData.data = cart;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in add to cart");
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET USER WISHLIST
+    // --------------------------------------------------------
+    getWishlist: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const wishlist = await Wishlist.findOne({ user: req.user.id })
+                .populate("items.product")
+                .lean();
+
+            if (!wishlist || wishlist.items.length === 0) {
+                retData.status = "success";
+                retData.code = 200;
+                retData.httpCode = 200;
+                retData.msg = "Wishlist is empty";
+                retData.data = [];
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Wishlist fetched successfully";
+            retData.data = wishlist.items;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in get wishlist");
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET USER CART
+    // --------------------------------------------------------
+    getCart: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const cart = await Cart.findOne({ user: req.user.id })
+                .populate("items.product")
+                .lean();
+
+            if (!cart || cart.items.length === 0) {
+                retData.status = "success";
+                retData.code = 200;
+                retData.httpCode = 200;
+                retData.msg = "Cart is empty";
+                retData.data = [];
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Cart fetched successfully";
+            retData.data = cart.items;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in get cart");
+        }
+    },
+
+
 };
 
 module.exports = Controller;

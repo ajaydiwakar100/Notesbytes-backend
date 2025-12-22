@@ -33,6 +33,7 @@ const documentSchema = new mongoose.Schema(
 
     // Media
     docImage: { type: String, trim: true, default: "" },
+    sampleFile: { type: String, trim: true, default: "" },
 
     // Tags & Topics
     topics: [{ type: String }],

@@ -119,6 +119,25 @@ module.exports = function(app) {
     ]),
     validate(documentValidation.create),documentController.create
   );
+
+  router.get("/end-user/document/details/:slug", userAuth, documentController.detailsBySlug);
+  router.post(
+    "/end-user/document/update/:slug",
+    userAuth,
+    uploadDocument.fields([
+      { name: "file", maxCount: 1 },
+      { name: "sampleFile", maxCount: 1 },
+      { name: "docImage", maxCount: 1 }
+    ]),
+    documentController.updateBySlug
+  );
+  router.delete("/end-user/document/delete/:slug", userAuth, documentController.deleteDocumentBySlug);
+  router.post("/end-user/document/publish/:slug",userAuth,documentController.updatePublishStatus);
+  
+  router.get("/end-user/wishlist", userAuth, documentController.getWishlist);
+  router.get("/end-user/cart", userAuth, documentController.getCart);
+  router.post("/end-user/wishlist/add", userAuth, documentController.addToWishlist);
+  router.post("/end-user/cart/add", userAuth, documentController.addToCart);
   
   app.use("/api/admin", router);
 };

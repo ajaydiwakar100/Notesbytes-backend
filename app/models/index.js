@@ -7,4 +7,6 @@ module.exports = {
   Document: require('./documents.model'),
   Testimonial: require('./testimonial.model'),
   GlobalSetting: require('./globalSetting.model'),
+  Cart: require('./cart.model'),
+  WishList: require('./wishlist.model'),
 };
