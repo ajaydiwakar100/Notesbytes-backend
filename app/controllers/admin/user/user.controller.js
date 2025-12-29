@@ -365,6 +365,7 @@ const Controller = {
       return Controller.handleError(res, err, "ERROR in logout");
     }
   },
+
 };
 
 module.exports = Controller;

@@ -14,6 +14,7 @@ const documentController = require("../controllers/admin/document/document.contr
 const documentValidation = require("../controllers/admin/document/validation");
 const testimonialController = require("../controllers/admin/testimonial/testimonal.controller");
 const cmsController   = require("../controllers/admin/cms/cms.controller");
+const { createEmailTemplate } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
 
 const validate = require("../middleware/validate");
 const Authenticate = require("../middleware/authenticate");
@@ -71,8 +72,11 @@ module.exports = function(app) {
   router.post("/permission/update", validate(validationSchemas.permissionSchemas.create), Authenticate,  permissionController.update);
   router.post("/permission/delete", validate(validationSchemas.permissionSchemas.create),  Authenticate, permissionController.delete);
   router.get("/permission/view/:id", Authenticate, permissionController.view);
-
-
+  
+  // email template 
+  router.post("/email-template/create", createEmailTemplate);
+  
+  
   // buyers/sellers
   router.get("/end-users/list",  Authenticate, endUserController.getList);
   router.post("/end-users/create", validate(endUserSchemas.create), endUserController.create);
@@ -103,41 +107,36 @@ module.exports = function(app) {
   router.get("/document/subjects", documentController.getUniqueSubjects)
   router.get("/document/exams", documentController.getUniqueExams)
   router.get("/settings/list",  getAllSettingsController.getSettings);
+  router.get("/document/getDetail/:id", documentController.detailsById);
 
-  // auth
+  // auth api
   router.post("/end-user/register",validate(endUserSchemas.create),endUserController.create);
   router.post("/end-user/login",validate(endUserSchemas.login),endUserController.login);
+  router.get("/end-user/me", userAuth, endUserController.getMe);
   router.get("/end-user/getNotes", userAuth, documentController.getUploadDocumentByUser);
-
-  // create notes
-  router.post("/end-user/document/create",
-    userAuth,
-    uploadDocument.fields([
-      { name: "file", maxCount: 1 },
-      { name: "sampleFile", maxCount: 1 },
-      { name: "docImage", maxCount: 1 },
-    ]),
-    validate(documentValidation.create),documentController.create
-  );
-
+  router.post("/end-user/logout", userAuth, endUserController.logout)
+  
+  // notes api
+  router.post("/end-user/document/create",userAuth,uploadDocument.fields([{ name: "file", maxCount: 1 },{ name: "sampleFile", maxCount: 1 },{ name: "docImage", maxCount: 1 }]),validate(documentValidation.create),documentController.create);
   router.get("/end-user/document/details/:slug", userAuth, documentController.detailsBySlug);
-  router.post(
-    "/end-user/document/update/:slug",
-    userAuth,
-    uploadDocument.fields([
-      { name: "file", maxCount: 1 },
-      { name: "sampleFile", maxCount: 1 },
-      { name: "docImage", maxCount: 1 }
-    ]),
-    documentController.updateBySlug
-  );
+  router.post("/end-user/document/update/:slug",userAuth, uploadDocument.fields([{ name: "file", maxCount: 1 },{ name: "sampleFile", maxCount: 1 },{ name: "docImage", maxCount: 1 }]),documentController.updateBySlug);
   router.delete("/end-user/document/delete/:slug", userAuth, documentController.deleteDocumentBySlug);
   router.post("/end-user/document/publish/:slug",userAuth,documentController.updatePublishStatus);
+  router.get("/end-user/document/get-purchase-notes", userAuth, documentController.getPurchasedNotes);
   
+  // wish list api
   router.get("/end-user/wishlist", userAuth, documentController.getWishlist);
-  router.get("/end-user/cart", userAuth, documentController.getCart);
   router.post("/end-user/wishlist/add", userAuth, documentController.addToWishlist);
-  router.post("/end-user/cart/add", userAuth, documentController.addToCart);
+  router.post("/end-user/wishlist/remove", userAuth, documentController.removeFromWishlist);
   
+  // cart api
+  router.get("/end-user/cart", userAuth, documentController.getCart);
+  router.post("/end-user/cart/add", userAuth, documentController.addToCart);
+  router.post("/end-user/cart/remove", userAuth, documentController.removeFromCart);
+
+  // Checkout 
+  router.post ("/end-user/checkout", userAuth, documentController.createOrder);
+  router.post("/end-user/verify-payment", userAuth, documentController.verifyPayment);
+
   app.use("/api/admin", router);
 };

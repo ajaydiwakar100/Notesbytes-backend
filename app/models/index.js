@@ -8,5 +8,9 @@ module.exports = {
   Testimonial: require('./testimonial.model'),
   GlobalSetting: require('./globalSetting.model'),
   Cart: require('./cart.model'),
-  WishList: require('./wishlist.model'),
+  Wishlist: require('./wishlist.model'),
+  Invoice: require('./invoices.model'),
+  PaymentLog: require('./paymentLogs.model'),
+  PurchaseOrder: require('./purchaseOrder.model'),
+  EmailTemplate: require('./emailTemplate.model'),
 };

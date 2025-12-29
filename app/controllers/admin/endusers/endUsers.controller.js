@@ -352,6 +352,55 @@ const Controller = {
     }
   },
 
+  // ---------------------------
+  // Auth / Me
+  // ---------------------------
+  getMe: async function (req, res) {
+    try {
+      const userId = req.user.id;
+      const user = await User.findById(userId).select("-password");
+      const retData = AppHelpers.Utils.responseObject();
+
+      if (!user) {
+        retData.status = "error";
+        retData.code = 401;
+        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      retData.status = "success";
+      retData.data = user;
+      retData.msg = "User authenticated";
+
+      return AppHelpers.Utils.cRes(res, retData);
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in getMe");
+    }
+  },
+
+  // ---------------------------
+  // Logout api 
+  // ---------------------------
+  logout: async function (req, res) {
+    try {
+      // Clear the HttpOnly cookie
+      res.clearCookie("userAuthToken", {
+        path: "/",
+        httpOnly: true,
+        secure: false, // only secure in prod
+        sameSite: "lax", // or "strict" depending on your setup
+      });
+
+      // Return response
+      const retData = AppHelpers.Utils.responseObject();
+      retData.status = "success";
+      retData.msg = "Logged out successfully";
+
+      return AppHelpers.Utils.cRes(res, retData);
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in logout");
+    }
+  }
 
 };
 
