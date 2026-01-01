@@ -44,7 +44,7 @@ mongoose
    MIDDLEWARES
 ----------------------------*/
 
-const allowedOrigin = ["http://localhost:5173","http://localhost:3000"];
+const allowedOrigin = ["http://localhost:5173","http://localhost:3000","https://admin-stage.notesbyte.in","https://stage.notesbyte.in"];
 app.use(helmet());
 app.disable("x-powered-by");
 app.use(logger("dev"));
