@@ -21,7 +21,7 @@ global.AppHelpers = require("./app/helpers");
 
 // Paths
 global.VIEW_PATH = path.join(__dirname, "views");
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/admin/api/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------
    MONGO DB CONNECTION
