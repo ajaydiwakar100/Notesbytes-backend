@@ -409,13 +409,13 @@ const Controller = {
             // -------------------------
             // If rejected → reason required
             // -------------------------
-            // if (approvalStatus === "rejected") {
-            //     retData.status = "error";
-            //     retData.code = 400;
-            //     retData.httpCode = 400;
-            //     retData.msg = "Rejection reason is required";
-            //     return AppHelpers.Utils.cRes(res, retData);
-            // }
+            if (approvalStatus === "rejected" && reason == null) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Rejection reason is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
 
             // Build update object
             const updateObj = {

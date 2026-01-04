@@ -82,13 +82,14 @@ module.exports = function(app) {
   router.post("/end-users/create", validate(endUserSchemas.create), endUserController.create);
   router.put("/end-users/change-status", Authenticate,  endUserController.updateStatus);
   router.get("/end-users/view/:id", Authenticate,  endUserController.details);
-  //router.post("/end-users/update/:id", validate(subAdminsSchemas.create), Authenticate,  endUserController.);
   router.get("/end-users/view/:id/referrals", Authenticate, endUserController.referrals);
+  router.get("/end-users/get-purchase-order", Authenticate, endUserController.getMyPurchaseOrders);
+  router.get("/end-users/invoice",Authenticate,endUserController.generateInvoice);
+  
 
 
   // Document 
   router.get("/document/list",  Authenticate, documentController.getList);
-  
   router.put("/document/change-status", Authenticate,  documentController.updateStatus);
   router.get("/document/view/:id", Authenticate,  documentController.details);
   router.put("/document/approved-reject-status", Authenticate,  documentController.updateApprovalStatus);

@@ -9,9 +9,8 @@ const GlobalSettingSchema = new mongoose.Schema(
       trim: true,
     },
     value: {
-      type: String,
-      trim: true,
-      default: "",
+      type: mongoose.Schema.Types.Mixed, // ✅ store object safely
+      required: true,
     },
   },
   { timestamps: true }

@@ -1,9 +1,10 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { User } = require("../../../models/index.js");
+const { User,PurchaseOrder, GlobalSetting } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const AppHelpers = require("../../../helpers/index.js");
 const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
+const PDFDocument = require("pdfkit");
 
 
 const Controller = {
@@ -399,6 +400,176 @@ const Controller = {
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in logout");
+    }
+  },
+
+  // ---------------------------
+  // Purchase Orders / My Orders
+  // ---------------------------
+  getMyPurchaseOrders: async function (req, res) {
+    try {
+      const { userId } = req.query;
+      const retData = AppHelpers.Utils.responseObject();
+
+      // build condition dynamically
+      const condition = {};
+      if (userId) {
+        condition.userId = userId;
+      }
+
+      const orders = await PurchaseOrder.find(condition)
+        .populate("userId", "name email")
+        .sort({ createdAt: -1 })
+        .lean();
+
+      retData.status = "success";
+      retData.data = orders;
+      retData.msg = userId
+        ? "User purchase orders fetched successfully"
+        : "All purchase orders fetched successfully";
+
+      return AppHelpers.Utils.cRes(res, retData);
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in getMyPurchaseOrders");
+    }
+  },
+
+  generateInvoice: async (req, res) => {
+    try {
+      const { orderId } = req.query;
+
+      const order = await PurchaseOrder.findById(orderId)
+        .populate("userId", "name email phone")
+        .lean();
+
+      if (!order) {
+        return res.status(404).json({ status: "error", msg: "Order not found" });
+      }
+
+      // Fetch platform fee / processing fee from GlobalSetting
+      const settings = await GlobalSetting.findOne({ key: "plateform_fee" }).lean();
+      console.log(settings);
+      const processingFee = Number(settings?.value || 0); // in INR
+      console.log(processingFee);
+
+      // Calculate grand total with commission
+      const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const totalAmount = subtotal + processingFee;
+
+      // Set headers for download
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=invoice_${order._id}.pdf`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+
+      const doc = new PDFDocument({ margin: 40 });
+      doc.pipe(res);
+
+      // ---------------- PDF HEADER ----------------
+      doc
+        .fontSize(20)
+        .text("INVOICE", { align: "center" })
+        .moveDown(0.5);
+
+      doc
+        .fontSize(10)
+        .text(`Invoice ID: ${order._id}`)
+        .text(`Order ID: ${order.razorpayOrderId}`)
+        .text(`Date: ${new Date(order.created_at).toLocaleDateString()}`);
+
+      doc.moveDown();
+
+      // ---------------- CUSTOMER DETAILS ----------------
+      doc.fontSize(12).text("Billed To", { underline: true });
+      doc
+        .fontSize(10)
+        .text(order.userId.name)
+        .text(order.userId.email)
+        .text(order.userId.phone || "-");
+
+      doc.moveDown(1.5);
+
+      // ================= TABLE =================
+      const tableTop = doc.y;
+      const itemX = 40;
+      const qtyX = 280;
+      const priceX = 340;
+      const totalX = 410;
+
+      // Table Header
+      doc
+        .fontSize(11)
+        .text("Item", itemX, tableTop)
+        .text("Qty", qtyX, tableTop)
+        .text("Price", priceX, tableTop)
+        .text("Total", totalX, tableTop);
+
+      // Header line
+      doc.moveTo(itemX, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+
+      let yPosition = tableTop + 25;
+
+      // Table Rows
+      order.items.forEach((item, i) => {
+        const itemTotal = item.price * item.quantity;
+
+        doc
+          .fontSize(10)
+          .text(item.title, itemX, yPosition, { width: 240 })
+          .text(item.quantity, qtyX, yPosition)
+          .text(`${item.price}`, priceX, yPosition)
+          .text(`${itemTotal}`, totalX, yPosition);
+
+        yPosition += 20;
+
+        // Page break safety
+        if (yPosition > 720) {
+          doc.addPage();
+          yPosition = 50;
+        }
+      });
+
+      // Bottom line
+      doc.moveTo(itemX, yPosition).lineTo(550, yPosition).stroke();
+
+      doc.moveDown(2);
+
+      // ---------------- TOTAL SECTION ----------------
+      doc
+        .fontSize(10)
+        .text(`Subtotal: ${subtotal}`, { align: "right" })
+        .moveDown(0.5)
+        .text(`Processing Fee: ${processingFee}`, { align: "right" })
+        .moveDown(0.5)
+        .text(`Grand Total: ${totalAmount}`, { align: "right" });
+
+      doc.moveDown(3);
+
+      // ---------------- FOOTER ----------------
+      const footerY = doc.page.height - 60;
+      doc
+        .fontSize(9)
+        .text(
+          "This is a system-generated invoice. No signature required.",
+          40,
+          footerY,
+          { align: "center", width: 500 }
+        );
+
+      doc
+        .fontSize(9)
+        .text(
+          "Thank you for your purchase!",
+          40,
+          footerY + 15,
+          { align: "center", width: 500 }
+        );
+
+      doc.end();
+    } catch (err) {
+      console.error("Invoice error:", err);
+      res.status(500).json({ status: "error", msg: "Invoice generation failed" });
     }
   }
 
