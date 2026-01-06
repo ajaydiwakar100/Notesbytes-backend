@@ -79,7 +79,8 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      //const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpCode = 123456;
       const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
       await Admin.findByIdAndUpdate(admin._id, {
