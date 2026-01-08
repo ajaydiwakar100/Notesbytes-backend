@@ -337,7 +337,8 @@ const Controller = {
         httpOnly: true,
         secure: false,      
         sameSite: "Lax",
-        maxAge: 6 * 60 * 60 * 1000,
+        maxAge: 5 * 60 * 1000,
+       // maxAge: 6 * 60 * 60 * 1000,
       });
 
       retData.status = "success";

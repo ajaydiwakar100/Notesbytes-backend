@@ -109,6 +109,14 @@ module.exports = function(app) {
   router.get("/document/exams", documentController.getUniqueExams)
   router.get("/settings/list",  getAllSettingsController.getSettings);
   router.get("/document/getDetail/:id", documentController.detailsById);
+  router.get("/about-us/list", cmsController.getAboutUsPage);
+  router.get("/sell-notes/list", cmsController.getSellNotesPage);
+  router.get("/terms/list", cmsController.getTermsPage);
+  router.get("/privacy-policy/list", cmsController.getPrivacy);
+  router.get("/refund/list", cmsController.getRefund);
+  router.get("/get-all-settings/list", cmsController.getSetting);
+
+
 
   // auth api
   router.post("/end-user/register",validate(endUserSchemas.create),endUserController.create);
