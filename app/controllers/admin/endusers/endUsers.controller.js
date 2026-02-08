@@ -1,11 +1,12 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { User,PurchaseOrder, GlobalSetting } = require("../../../models/index.js");
+const { User,PurchaseOrder, GlobalSetting, EmailTemplate } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const AppHelpers = require("../../../helpers/index.js");
 const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
 const PDFDocument = require("pdfkit");
-
+const { sendEmail } = require("../../../helpers/email.helper.js");
+const crypto = require("crypto");
 
 const Controller = {
 
@@ -55,6 +56,10 @@ const Controller = {
 
       // Generate referral code
       const referralCode = await generateUniqueReferralCode(name);
+      
+      // 🔐 Generate email verification token
+      const verificationToken = crypto.randomBytes(32).toString("hex");
+
 
       // Hash password (REMOVE this if using schema pre-save hook)
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -68,40 +73,61 @@ const Controller = {
         password: hashedPassword,
         userType,
         referralCode,
-        status: 1
+        status: 1,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpires: Date.now() + 24 * 60 * 60 * 1000,
       });
 
-      const updatedUser = await User.findByIdAndUpdate(
-        user._id,
-        {
-          $inc: { token_version: 1 },
-        },
-        { new: true }
-      );
+      // const updatedUser = await User.findByIdAndUpdate(
+      //   user._id,
+      //   {
+      //     $inc: { token_version: 1 },
+      //   },
+      //   { new: true }
+      // );
 
-      const token = await AppHelpers.GenJWTToken({
-        userType: "users",
-        id: user._id,
-        tokenVersion: updatedUser.token_version,
-      });
+      // const token = await AppHelpers.GenJWTToken({
+      //   userType: "users",
+      //   id: user._id,
+      //   tokenVersion: updatedUser.token_version,
+      // });
 
-      // Remove password from response
-      const userObj = user.toObject();
-      delete userObj.password;
+      // // Remove password from response
+      // const userObj = user.toObject();
+      // delete userObj.password;
      
-      // Send token as HttpOnly cookie (more secure than sending in JSON)
-      res.cookie("userAuthToken", token, {
-        httpOnly: true,
-        secure: false, 
-        sameSite: "Lax",
-        maxAge: 6 * 60 * 60 * 1000, // 6 hours
+      // // Send token as HttpOnly cookie (more secure than sending in JSON)
+      // res.cookie("userAuthToken", token, {
+      //   httpOnly: true,
+      //   secure: false, 
+      //   sameSite: "Lax",
+      //   maxAge: 6 * 60 * 60 * 1000, // 6 hours
+      // });
+
+       /* 📧 Send Verification Email */
+      const template = await EmailTemplate.findOne({
+        key: "EMAIL_VERIFICATION",
+        isActive: true,
       });
 
+      if (template) {
+        const verificationLink = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+
+        const emailBody = template.body
+          .replace("{{name}}", user.name)
+          .replace("{{verificationLink}}", verificationLink);
+
+        await sendEmail({
+          to: user.email,
+          subject: template.subject,
+          html: emailBody.replace(/\n/g, "<br/>"),
+        });
+      }
       retData.status = "success";
       retData.code = 201;
       retData.httpCode = 201;
       retData.msg = AppHelpers.ResponseMessages.END_USER_CREATED;
-      retData.data = userObj;
+      retData.data = user;
 
       return AppHelpers.Utils.cRes(res, retData);
 
@@ -304,6 +330,14 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
+      if (!user.isEmailVerified) {
+        retData.status = "error";
+        retData.code = 401;
+        retData.httpCode = 401;
+        retData.msg = AppHelpers.ResponseMessages.VERIFIED_EMAIL;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
       // Compare password
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
@@ -337,8 +371,8 @@ const Controller = {
         httpOnly: true,
         secure: false,      
         sameSite: "Lax",
-        maxAge: 5 * 60 * 1000,
-       // maxAge: 6 * 60 * 60 * 1000,
+        //maxAge: 5 * 60 * 1000,
+        maxAge: 6 * 60 * 60 * 1000,
       });
 
       retData.status = "success";
@@ -435,6 +469,10 @@ const Controller = {
     }
   },
 
+
+  // ---------------------------
+  // Purchase Invoice
+  // ---------------------------
   generateInvoice: async (req, res) => {
     try {
       const { orderId } = req.query;
@@ -572,8 +610,129 @@ const Controller = {
       console.error("Invoice error:", err);
       res.status(500).json({ status: "error", msg: "Invoice generation failed" });
     }
-  }
+  },
 
+  // ---------------------------
+  // Update Profile 
+  // ---------------------------
+  updateProfile: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const userId = req.user.id;
+
+      const {
+        name,
+        phone,
+        email,
+        city,
+        state,
+        preferredLanguage,
+        consent,
+        sellerType
+      } = req.body;
+
+      const user = await User.findById(userId);
+
+      if (!user) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // ---------- CONSENT LOGIC ----------
+      let consentStatus;
+      if (consent && typeof consent === "object") {
+        const { termsAccepted, contentOwnership, marketingEmails } = consent;
+
+        consentStatus =
+          termsAccepted === true &&
+          contentOwnership === true &&
+          marketingEmails === true
+            ? "Yes"
+            : "No";
+      }
+      // ----------------------------------
+
+      // Update only allowed & provided fields
+      if (name !== undefined) user.name = name;
+      if (city !== undefined) user.city = city;
+      if (state !== undefined) user.state = state;
+      if (preferredLanguage !== undefined) user.preferredLanguage = preferredLanguage;
+      if (consentStatus !== undefined) user.consent = consentStatus;
+      if (sellerType !== undefined) user.userType = sellerType;
+      user.isProfileFill = "Yes";
+      await user.save();
+
+      const updatedUser = await User.findById(userId).select("-password");
+
+      retData.status = "success";
+      retData.msg = "Profile updated successfully";
+      retData.data = updatedUser;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in updateProfile");
+    }
+  },
+
+
+  // ---------------------------
+  // Verified Email
+  // ---------------------------
+  verifyEmail: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { token } = req.params;
+
+      const user = await User.findOne({
+        emailVerificationToken: token,
+        emailVerificationExpires: { $gt: Date.now() },
+      });
+
+      if (!user) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Invalid or expired verification link";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      user.emailVerified = true;
+      user.emailVerificationToken = null;
+      user.emailVerificationExpires = null;
+      await user.save();
+
+      // Send welcome email
+      const template = await EmailTemplate.findOne({
+        key: "WELCOME_WITH_REFERRAL",
+        isActive: true,
+      });
+
+      if (template && user.email) {
+        const emailBody = template.body
+          .replace("{{name}}", user.name)
+          .replace("{{referralCode}}", user.referralCode);
+
+        await sendEmail({
+          to: user.email,
+          subject: template.subject,
+          html: emailBody.replace(/\n/g, "<br/>"),
+        });
+      }
+
+      retData.status = "success";
+      retData.httpCode = 200;
+      retData.msg = "Email verified successfully";
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR verifying email");
+    }
+  },
 };
 
 module.exports = Controller;

@@ -38,6 +38,10 @@ const documentSchemas = {
       .trim()
       .optional(),
 
+    finalPrice: Joi.string()
+      .trim()
+      .optional(),
+
     language: Joi.string()
       .trim()
       .optional(),

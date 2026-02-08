@@ -39,10 +39,11 @@ const reponseMessages = {
 	SUB_ADMIN_TEMPLATE :"Your admin account details",
 	INVALID_ID: "Invalid Id",
 	EMAIL_OR_INVALID_ID: "Email or phone number already exist !",
-	END_USER_CREATED: "User created successfully",
+	END_USER_CREATED: "User created successfully. Please verify your email.",
 	DOCUMENT_FILE_REQUIRED: "Document file type is required",
 	DOCUMENT_UPLOADED_SUCCESSFULLY: "Document uploaded successfully!",
 	ORDER_CONFIRMATION :"Order Confirmed",
+	VERIFIED_EMAIL: "Please verify your email before logging in",
 
 
 }

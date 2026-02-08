@@ -60,6 +60,9 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to notebytes application." });
 });
 
+// start crons
+require("./app/controllers/cron/sellerPayout.cron");
+
 // Import admin routes (CommonJS)
 const adminRoutes = require("./app/routes/admin.routes");
 adminRoutes(app);

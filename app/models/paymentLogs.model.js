@@ -5,6 +5,7 @@ const customerPaymentLogSchema = new mongoose.Schema(
     invoiceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Invoice",
+      default: null,
     },
 
     userId: {
@@ -20,8 +21,9 @@ const customerPaymentLogSchema = new mongoose.Schema(
 
     orderId: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
+      default:null
     },
 
     paymentId: {

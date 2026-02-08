@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate} = require("../../../models/index.js");
+const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate, ReviewAndRating, GlobalSetting, Revenue} = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
 const documentSchemas = require("../document/validation.js");
 const slugify = require("slugify");
@@ -95,7 +95,8 @@ const Controller = {
                 isFeature,
                 shortDescription,
                 originalPrice,
-                publishStatus
+                publishStatus,
+                finalPrice
             } = req.body;
 
             // -------------------------------------
@@ -193,6 +194,7 @@ const Controller = {
                 reviewsCount: 0,
                 shortDescription,
                 originalPrice,
+                finalPrice
             });
 
             retData.status = "success";
@@ -617,6 +619,7 @@ const Controller = {
             if (sort === "rating") sortQuery = { rating: -1 };
             if (sort === "newest") sortQuery = { createdAt: -1 };
 
+            filters.approvalStatus = "approved";
             const documents = await Document.find(filters)
             .populate("uploadedBy", "name email")
             .sort(sortQuery)
@@ -648,8 +651,16 @@ const Controller = {
         const retData = AppHelpers.Utils.responseObject();
 
         try {
+            
             // Use Mongoose distinct to get unique values of 'subject'
-            const subjects = await Document.distinct("subject");
+            const globalSetting = await GlobalSetting.findOne({
+                key: "global_settings_content",
+            }).lean();
+
+            const globalSettingsContent = globalSetting?.value? JSON.parse(globalSetting.value): {};
+            const subjects = (globalSettingsContent.subjects || []).map(
+                (item) => item.name
+            );
 
             retData.status = "success";
             retData.code = 200;
@@ -670,8 +681,15 @@ const Controller = {
         const retData = AppHelpers.Utils.responseObject();
 
         try {
-            // Use Mongoose distinct to get unique values of 'exam'
-            const exams = await Document.distinct("exam");
+            // Use Mongoose distinct to get unique values of 'subject'
+            const globalSetting = await GlobalSetting.findOne({
+                key: "global_settings_content",
+            }).lean();
+
+            const globalSettingsContent = globalSetting?.value? JSON.parse(globalSetting.value): {};
+            const exams = (globalSettingsContent.exams || []).map(
+                (item) => item.name
+            );
 
             retData.status = "success";
             retData.code = 200;
@@ -685,6 +703,34 @@ const Controller = {
         }
     },
 
+    // --------------------------------------------------------
+    // GET ALL UNIQUE EXAMS
+    // --------------------------------------------------------
+    getUniqueLanguages: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            // Use Mongoose distinct to get unique values of 'subject'
+            const globalSetting = await GlobalSetting.findOne({
+                key: "global_settings_content",
+            }).lean();
+
+            const globalSettingsContent = globalSetting?.value? JSON.parse(globalSetting.value): {};
+            const notesLanguages = (globalSettingsContent.notesLanguages || []).map(
+                (item) => item.name
+            );
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = AppHelpers.ResponseMessages.RECORDS_FOUND;
+            retData.data = notesLanguages;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in fetching unique exams");
+        }
+    },
 
     getUploadDocumentByUser: async (req, res) => {
         const retData = AppHelpers.Utils.responseObject();
@@ -732,6 +778,7 @@ const Controller = {
             if (sort === "newest") sortQuery = { createdAt: -1 };
 
             // Fetch documents
+            //filters.approvalStatus = "approved";
             const documents = await Document.find(filters)
                 .populate("uploadedBy", "name email")
                 .sort(sortQuery)
@@ -758,7 +805,6 @@ const Controller = {
             return Controller.handleError(res, err, "ERROR in document list");
         }
     },
-
 
     // --------------------------------------------------------
     // UPDATE DOCUMENT / NOTES BY SLUG
@@ -804,6 +850,7 @@ const Controller = {
                 shortDescription,
                 originalPrice,
                 publishStatus,
+                finalPrice,
                 status
             } = req.body;
 
@@ -825,6 +872,7 @@ const Controller = {
             document.publishStatus = publishStatus ?? document.publishStatus;
             document.status = status ?? document.status;
             document.isFeature = isFeature ?? document.isFeature;
+            document.finalPrice = finalPrice ?? document.finalPrice;
 
             // -------------------------
             // TOPICS & HIGHLIGHTS
@@ -1052,24 +1100,29 @@ const Controller = {
         const retData = AppHelpers.Utils.responseObject();
 
         try {
-            const { documentId, quantity } = req.body;
+            const { documentId, quantity = 1 } = req.body;
 
             if (!documentId) {
-                retData.status = "error";
-                retData.code = 400;
-                retData.httpCode = 400;
-                retData.msg = "Document ID is required";
-                return AppHelpers.Utils.cRes(res, retData);
+            retData.status = "error";
+            retData.httpCode = 400;
+            retData.msg = "Document ID is required";
+            return AppHelpers.Utils.cRes(res, retData);
             }
 
             // Check if document exists
-            const document = await Document.findById(documentId);
+            const document = await Document.findById(documentId).select("_id uploadedBy price");
             if (!document) {
                 retData.status = "error";
-                retData.code = 404;
                 retData.httpCode = 404;
                 retData.msg = "Document not found";
                 return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            if (!document.uploadedBy) {
+            retData.status = "error";
+            retData.httpCode = 500;
+            retData.msg = "Seller not found for this document";
+            return AppHelpers.Utils.cRes(res, retData);
             }
 
             let cart = await Cart.findOne({ user: req.user.id });
@@ -1083,20 +1136,24 @@ const Controller = {
             );
 
             if (existingItem) {
-                existingItem.quantity += quantity || 1; // increment quantity
+                existingItem.quantity += quantity;
             } else {
-                cart.items.push({ product: documentId, quantity: quantity || 1 });
+                cart.items.push({
+                    product: documentId,
+                    quantity,
+                    sellerId: document.uploadedBy, // ✅ correct seller
+                });
             }
 
             await cart.save();
 
             retData.status = "success";
-            retData.code = 200;
             retData.httpCode = 200;
             retData.msg = "Document added to cart";
             retData.data = cart;
 
             return AppHelpers.Utils.cRes(res, retData);
+
         } catch (err) {
             return Controller.handleError(res, err, "ERROR in add to cart");
         }
@@ -1112,7 +1169,7 @@ const Controller = {
             const wishlist = await Wishlist.findOne({ user: req.user.id })
             .populate({
                 path: "items.product",
-                select: "_id title subject slug price originalPrice rating noOfDownloads docImage author",
+                select: "_id title subject slug price originalPrice finalPrice rating noOfDownloads docImage author",
             })
             .lean();
 
@@ -1136,6 +1193,7 @@ const Controller = {
                 rating: item.product.rating,
                 noOfDownloads: item.product.noOfDownloads,
                 author:item.product.author,
+                finalPrice: item.product.finalPrice,
                 thumbnailUrl: item.product.docImage
                 ? `${process.env.BASE_URL || ""}/${item.product.docImage}`
                 : "/placeholder.svg",
@@ -1164,7 +1222,7 @@ const Controller = {
             const cart = await Cart.findOne({ user: req.user.id })
                 .populate({
                     path: "items.product",
-                    select: "_id title subject slug price originalPrice rating noOfDownloads docImage author",
+                    select: "_id title subject slug price originalPrice finalPrice rating noOfDownloads docImage author",
                 })
                 .lean();
 
@@ -1188,6 +1246,7 @@ const Controller = {
                 rating: item.product.rating,
                 noOfDownloads: item.product.noOfDownloads,
                 author: item.product.author,
+                finalPrice: item.product.finalPrice,
                 thumbnailUrl: item.product.docImage
                     ? `${process.env.BASE_URL || ""}/${item.product.docImage}`
                     : "/placeholder.svg",
@@ -1360,6 +1419,7 @@ const Controller = {
     // --------------------------------------------------------
     createOrder: async (req, res) => {
         const retData = AppHelpers.Utils.responseObject();
+    
 
         try {
             const { amount, currency, checkoutType } = req.body;
@@ -1377,7 +1437,7 @@ const Controller = {
             const cartItems = await Cart.findOne({ user: userId })
             .populate({
                 path: "items.product",
-                select: "title price docImage slug", // optional fields
+                select: "title price docImage slug uploadedBy", // optional fields
             });
 
             if (cartItems.items.length === 0) {
@@ -1425,7 +1485,7 @@ const Controller = {
                 })),
             });
 
-            // 5️⃣ Create Invoice
+            // Create Invoice
             const invoice = await Invoice.create({
                 userId,
                 gateway: "razorpay",
@@ -1437,7 +1497,7 @@ const Controller = {
                 status: "PENDING",
             });
 
-            // 6️⃣ Payment Log
+            // Payment Log
             await PaymentLog.create({
                 invoiceId: invoice._id,
                 userId,
@@ -1449,6 +1509,34 @@ const Controller = {
                 status: "PENDING",
                 logData: order,
             });
+
+            // // Revenue Split Logic
+            // for (const item of cartItems.items) {
+            //     const baseAmount = item.product.price * item.quantity;
+
+            //     const platformFee = Number(
+            //         ((baseAmount * COMMISSION_PERCENT) / 100).toFixed(2)
+            //     );
+
+            //     const totalAmount = Number(
+            //         (baseAmount + platformFee).toFixed(2)
+            //     ); 
+            //     const sellerAmount = Number(
+            //         (totalAmount - platformFee).toFixed(2)
+            //     );
+
+            //     await Revenue.create({
+            //         orderId: purchaseOrder._id,
+            //         sellerId: item.sellerId,
+            //         buyerId: userId,
+            //         totalAmount,
+            //         adminCommission: platformFee,
+            //         sellerAmount,
+            //         commissionPercent: COMMISSION_PERCENT,
+            //         status: "PENDING",
+            //     });
+            // }
+
 
             retData.status = "success";
             retData.code = 200;
@@ -1473,7 +1561,16 @@ const Controller = {
     // --------------------------------------------------------
     verifyPayment: async (req, res) => {
         const retData = AppHelpers.Utils.responseObject();
+        const globalSetting = await GlobalSetting.findOne({
+            key: "global_settings_content",
+        }).lean();
+        
+        let getContent = {};
+        if (globalSetting?.value) {
+            getContent = JSON.parse(globalSetting.value);
+        }
 
+        
         try {
             const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
 
@@ -1560,10 +1657,44 @@ const Controller = {
             }
 
             /* ----------------------------------------------------
+                CREATE AN ENTRY RENVENUE TABLE (SPLIT PAYMENT)
+            ---------------------------------------------------- */
+            const cartItems = await Cart.findOne({ user: purchaseOrder.userId })
+            .populate({
+                path: "items.product",
+                select: "title price docImage slug uploadedBy finalPrice", // optional fields
+            });
+
+            if (cartItems.items.length === 0) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Cart is empty";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Revenue Split Logic
+            for (const item of cartItems.items) {
+                const baseAmount = item.product.price * item.quantity;
+                const platformFee = item.product.finalPrice - baseAmount;
+                const sellerAmount = baseAmount;
+                await Revenue.create({
+                    orderId: purchaseOrder._id,
+                    sellerId: item.sellerId,
+                    buyerId: purchaseOrder.userId,
+                    totalAmount: item.product.finalPrice,
+                    adminCommission: platformFee,
+                    sellerAmount,
+                    commissionPercent: 0,
+                    status: "PENDING",
+                });
+            }
+
+            /* ----------------------------------------------------
             5️⃣ CLEAR CART
             ---------------------------------------------------- */
             await Cart.findOneAndUpdate(
-            { user: purchaseOrder.userId._id },
+            { user: purchaseOrder.userId },
             { $set: { items: [] } }
             );
 
@@ -1613,17 +1744,17 @@ const Controller = {
                 });
             }
 
-                /* ----------------------------------------------------
-                7️⃣ RESPONSE
-                ---------------------------------------------------- */
-                retData.status = "success";
-                retData.code = 200;
-                retData.httpCode = 200;
-                retData.msg = "Payment verified successfully!";
-                retData.data = {
-                    invoice,
-                    purchaseOrderId: purchaseOrder._id,
-                };
+            /* ----------------------------------------------------
+            7️⃣ RESPONSE
+            ---------------------------------------------------- */
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Payment verified successfully!";
+            retData.data = {
+                invoice,
+                purchaseOrderId: purchaseOrder._id,
+            };
 
             return AppHelpers.Utils.cRes(res, retData);
 
@@ -1653,7 +1784,7 @@ const Controller = {
             })
             .populate({
                 path: "items.productId",
-                select: "title price subject exam filePath updatedAt slug",
+                select: "title price subject exam filePath updatedAt slug finalPrice",
             })
             .sort({ created_at: -1 });
 
@@ -1684,7 +1815,8 @@ const Controller = {
                             subject: item.productId.subject,
                             filePath: process.env.BASE_URL+"/"+item.productId.filePath,
                             updateAt: item.productId.updatedAt,
-                            slug: item.productId.slug
+                            slug: item.productId.slug,
+                            finalPrice: item.productId.finalPrice
                         });
                     }
                 });
@@ -1709,7 +1841,444 @@ const Controller = {
         }
     },
 
+    // --------------------------------------------------------
+    // ADD / UPDATE REVIEW & RATING
+    // --------------------------------------------------------
+    addOrUpdateReview: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
 
+        try {
+            const userId = req.user.id;
+            const { productId, rating, review } = req.body;
+
+            // Validation
+            if (!productId || !rating) {
+            retData.status = "error";
+            retData.code = 400;
+            retData.msg = "Product and rating are required";
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            if (rating < 1 || rating > 5) {
+            retData.status = "error";
+            retData.code = 400;
+            retData.msg = "Rating must be between 1 and 5";
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Purchase check
+            const purchased = await PurchaseOrder.findOne({
+                userId,
+                status: "PAID",
+                "items.productId": productId,
+            });
+
+            if (!purchased) {
+                retData.status = "error";
+                retData.code = 403;
+                retData.msg = "You can review only purchased notes";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Create or update review
+            const reviewData = await ReviewAndRating.findOneAndUpdate(
+            { userId, productId },
+            { rating, comment: review },
+            {
+                new: true,
+                upsert: true,
+                setDefaultsOnInsert: true,
+            }
+            );
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Review submitted successfully";
+            retData.data = reviewData;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (error) {
+            console.error("Add review error:", error);
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = "Failed to submit review";
+            retData.data = { details: error.message };
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET REVIEWS BY NOTE
+    // --------------------------------------------------------
+    getReviewsByProduct: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { productId } = req.params;
+
+            if (!productId) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.msg = "Product ID is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            /* =========================
+            1️⃣ FETCH REVIEWS
+            ========================= */
+            const reviews = await ReviewAndRating.find({ productId })
+                .populate("userId", "name")
+                .sort({ createdAt: -1 })
+                .lean();
+
+            /* =========================
+            2️⃣ CALCULATE SUMMARY
+            ========================= */
+            const summary = {
+                avgRating: 0,
+                totalReviews: reviews.length,
+                breakdown: {
+                    5: 0,
+                    4: 0,
+                    3: 0,
+                    2: 0,
+                    1: 0,
+                },
+            };
+
+            let ratingSum = 0;
+
+            reviews.forEach((r) => {
+                ratingSum += r.rating;
+                summary.breakdown[r.rating] =
+                    (summary.breakdown[r.rating] || 0) + 1;
+            });
+
+            summary.avgRating =
+                summary.totalReviews > 0
+                    ? Number((ratingSum / summary.totalReviews).toFixed(1))
+                    : 0;
+
+            /* =========================
+            3️⃣ FORMAT REVIEWS
+            ========================= */
+            const formattedReviews = reviews.map((r) => ({
+                _id: r._id,
+                user: {
+                    name: r.userId?.name || "Anonymous",
+                },
+                rating: r.rating,
+                comment: r.comment,
+                createdAt: r.createdAt,
+            }));
+
+            /* =========================
+            4️⃣ RESPONSE
+            ========================= */
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Reviews fetched successfully";
+            retData.data = {
+                summary,
+                reviews: formattedReviews,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (error) {
+            console.error("Get reviews error:", error);
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = "Failed to fetch reviews";
+            retData.data = { details: error.message };
+
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // CREATE / ENSURE RAZORPAY CONTACT + FUND ACCOUNT
+    // --------------------------------------------------------
+    createOrUpdateRazorpayAccount: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const userId = req.user.id;
+            const { accountType, bankAccount, vpa } = req.body;
+
+            /* =========================
+            1️⃣ FIND USER
+            ========================= */
+            const user = await User.findById(userId);
+            if (!user) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.msg = "User not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            /* =========================
+            2️⃣ INIT RAZORPAY
+            ========================= */
+            const razorpay = new Razorpay({
+                key_id: process.env.RAZORPAY_KEY_ID,
+                key_secret: process.env.RAZORPAY_KEY_SECRET,
+            });
+
+            /* =========================
+            3️⃣ CREATE CUSTOMER (IF NOT EXISTS)
+            ========================= */
+            if (!user.razorpayCustomerId) {
+                if (!bankAccount?.name || !bankAccount?.phone) {
+                    retData.status = "error";
+                    retData.code = 400;
+                    retData.msg = "Name and phone are required";
+                    return AppHelpers.Utils.cRes(res, retData);
+                }
+
+                const customer = await razorpay.customers.create({
+                    name: bankAccount.name,
+                    email: user.email,
+                    contact: bankAccount.phone,
+                    notes: {
+                        user_id: userId.toString(),
+                    },
+                });
+
+                user.razorpayCustomerId = customer.id;
+                await user.save();
+            }
+
+            /* =========================
+            4️⃣ DEACTIVATE OLD FUND ACCOUNT (IMPORTANT)
+            ========================= */
+            if (user.razorpayFundAccountId) {
+                try {
+                await razorpay.api.post(
+                    `/fund_accounts/${user.razorpayFundAccountId}/deactivate`
+                );
+                } catch (err) {
+                console.log("Fund account already inactive or not found");
+                }
+                user.razorpayFundAccountId = null;
+                await user.save();
+            }
+
+            /* =========================
+            5️⃣ VALIDATION
+            ========================= */
+            if (!accountType) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.msg = "Account type is required";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const payload = {
+                customer_id: user.razorpayCustomerId,
+                account_type: accountType,
+            };
+
+            /* =========================
+            6️⃣ BANK ACCOUNT
+            ========================= */
+            if (accountType === "bank_account") {
+                const { name, ifsc, account_number } = bankAccount || {};
+
+                if (!name || !ifsc || !account_number) {
+                    retData.status = "error";
+                    retData.code = 400;
+                    retData.msg = "Complete bank details required";
+                    return AppHelpers.Utils.cRes(res, retData);
+                }
+
+                payload.bank_account = {
+                    name,
+                    ifsc,
+                    account_number,
+                };
+            }
+
+            /* =========================
+            7️⃣ UPI (VPA)
+            ========================= */
+            if (accountType === "vpa") {
+                if (!vpa) {
+                    retData.status = "error";
+                    retData.code = 400;
+                    retData.msg = "UPI ID is required";
+                    return AppHelpers.Utils.cRes(res, retData);
+                }
+
+                payload.vpa = { address: vpa };
+            }
+
+            /* =========================
+            8️⃣ CREATE FUND ACCOUNT
+            ========================= */
+            const fundAccount = await razorpay.fundAccount.create(payload);
+
+            user.razorpayFundAccountId = fundAccount.id;
+            user.isSellerAccount = "Yes";
+            await user.save();
+
+            /* =========================
+            9️⃣ RESPONSE
+            ========================= */
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Payment details updated successfully";
+            retData.data = {
+                razorpayCustomerId: user.razorpayCustomerId,
+                razorpayFundAccountId: fundAccount.id,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (error) {
+            console.error("Razorpay Error:", error);
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg =
+                error?.error?.description ||
+                error.message ||
+                "Razorpay setup failed";
+
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+    
+    // --------------------------------------------------------
+    // GET ALL REVENUE FOR LOGGED-IN SELLER
+    // --------------------------------------------------------
+    getSellerRevenue: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const sellerId = req.user.id;
+
+            const revenues = await Revenue.find({ sellerId })
+            .sort({ createdAt: -1 })
+            .populate("orderId", "orderNumber totalAmount")
+            .lean();
+
+            /* -----------------------------
+            BALANCE CALCULATION
+            ----------------------------- */
+            const balances = {
+            pending: 0,
+            settled: 0,
+            failed: 0,
+            };
+
+            /* -----------------------------
+            TRANSACTIONS GROUPING
+            ----------------------------- */
+            const transactions = {
+            pending: [],
+            settled: [],
+            failed: [],
+            };
+
+            revenues.forEach((rev) => {
+            const amount = rev.sellerAmount || 0;
+
+            const tx = {
+                _id: rev._id,
+                orderId: rev.orderId._id,
+                amount,
+                status: rev.status,
+                payoutId: rev.payoutId || null,
+                createdAt: rev.createdAt,
+            };
+
+            if (rev.status === "PENDING" || rev.status === "PROCESSING") {
+                balances.pending += amount;
+                transactions.pending.push(tx);
+            }
+
+            if (rev.status === "SETTLED") {
+                balances.settled += amount;
+                transactions.settled.push(tx);
+            }
+
+            if (rev.status === "FAILED") {
+                balances.failed += amount;
+                transactions.failed.push(tx);
+            }
+            });
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.data = {
+                balances,
+                transactions,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to fetch seller revenue";
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET DASHBOARD STATS FOR LOGGED-IN SELLER
+    // --------------------------------------------------------
+    getSellerDashboard: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const sellerId = req.user.id;
+
+            // -----------------------------
+            // TOTAL UPLOADED NOTES
+            // -----------------------------
+            const uploadedNotesCount = await Document.countDocuments({ uploadedBy: sellerId });
+
+            // -----------------------------
+            // TOTAL PURCHASES
+            // -----------------------------
+            const totalPurchases = await PurchaseOrder.countDocuments({ userId: sellerId, status: "PAID" });
+
+            // -----------------------------
+            // TOTAL EARNINGS
+            // -----------------------------
+            const revenues = await Revenue.find({ sellerId, status: "SETTLED" }).lean();
+            const totalEarnings = revenues.reduce((sum, rev) => sum + (rev.sellerAmount || 0), 0);
+
+            // -----------------------------
+            // OPTIONAL: Total Downloads
+            // -----------------------------
+            const totalDownloads = await Document.aggregate([
+            { $match: { authorId: sellerId } },
+            { $group: { _id: null, totalDownloads: { $sum: "$noOfDownloads" } } },
+            ]);
+            
+            retData.status = "success";
+            retData.code = 200;
+            retData.data = {
+            totalUploads: uploadedNotesCount,
+            totalPurchases,
+            totalEarnings,
+            totalDownloads: totalDownloads[0]?.totalDownloads || 0,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to fetch dashboard stats";
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    }
 };
 
 module.exports = Controller;

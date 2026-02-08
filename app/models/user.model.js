@@ -20,6 +20,16 @@ const userSchema = new mongoose.Schema(
     referralCommission: { type: Number, default: 0 },
     status: { type: Number,enum: [0, 1],default: 1}, // 0 = inactive, 1 = active
     token_version: { type: Number, default: 0 },
+    consent:{type: String,default: "both"},
+    preferredLanguage:{type: String,default: "both"},
+    isProfileFill:{type: String,default: "No"},
+    isSellerAccount:{type: String,default: "No"},
+    razorpayFundAccountId:{type: String,default: null},
+    razorpayCustomerId:{type: String,default: null},
+    emailVerified: {type: Boolean,default: false},
+    emailVerificationToken: {type: String,default: null },
+    emailVerificationExpires: {type: Date,default: null },
+
   },
   { timestamps: true }
 );

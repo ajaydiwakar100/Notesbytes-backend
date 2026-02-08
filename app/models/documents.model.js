@@ -11,6 +11,7 @@ const documentSchema = new mongoose.Schema(
     // Pricing & Stats
     price: { type: Number, required: true },
     originalPrice: { type: Number, default: 0 },
+    finalPrice:{ type: Number, default: 0 },
     rating: { type: Number, default: 0 },
     reviewsCount: { type: Number, default: 0 },
     noOfDownloads: { type: Number, default: 0 },

@@ -8,6 +8,7 @@ const CartSchema = new mongoose.Schema(
         product: { type: mongoose.Schema.Types.ObjectId, ref: "Document", required: true },
         quantity: { type: Number, default: 1 },
         addedAt: { type: Date, default: Date.now },
+        sellerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true},
       },
     ],
   },

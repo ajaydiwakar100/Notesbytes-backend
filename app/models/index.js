@@ -13,4 +13,8 @@ module.exports = {
   PaymentLog: require('./paymentLogs.model'),
   PurchaseOrder: require('./purchaseOrder.model'),
   EmailTemplate: require('./emailTemplate.model'),
+  ReviewAndRating: require('./review.model'),
+  Revenue: require('./revenue.model'),
+  Blog: require('./blog.model'),
+  
 };

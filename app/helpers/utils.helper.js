@@ -115,7 +115,16 @@ const Utils = {
 
   getExtension: function (filename) {
     return filename.split('.').pop();
+  },
+
+  generateEmailToken: function (userId) {
+    return jwt.sign(
+      { userId, purpose: "email_verify" },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
   }
+
 };
 
 module.exports = Utils;

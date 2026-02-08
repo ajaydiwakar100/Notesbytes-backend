@@ -15,12 +15,14 @@ const documentValidation = require("../controllers/admin/document/validation");
 const testimonialController = require("../controllers/admin/testimonial/testimonal.controller");
 const cmsController   = require("../controllers/admin/cms/cms.controller");
 const { createEmailTemplate } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
+const blogController = require("../controllers/admin/blog/blog.controller");
 
 const validate = require("../middleware/validate");
 const Authenticate = require("../middleware/authenticate");
 const userAuth = require("../middleware/userAuth");
 const createUploader = require("../helpers/upload.helper.js");
 const uploadDocument = createUploader("documents"); // folder name
+const upload = require("../middleware/adminUplod.js");
 
 
 module.exports = function(app) {
@@ -32,6 +34,8 @@ module.exports = function(app) {
   router.post("/verify-otp", validate(userSchemas.verifyOtp), AuthController.verifyOtp);
   router.post("/forgot-password", validate(userSchemas.forgotPassword), AuthController.forgetPassword);
   router.post("/reset-password", validate(userSchemas.resetPassword), AuthController.resetPassword);
+  
+
 
   // After Login
   router.get("/get-profile", Authenticate, AuthController.getProfile);
@@ -80,13 +84,12 @@ module.exports = function(app) {
   // buyers/sellers
   router.get("/end-users/list",  Authenticate, endUserController.getList);
   router.post("/end-users/create", validate(endUserSchemas.create), endUserController.create);
+  router.get("/verify-email/:token", endUserController.verifyEmail);
   router.put("/end-users/change-status", Authenticate,  endUserController.updateStatus);
   router.get("/end-users/view/:id", Authenticate,  endUserController.details);
   router.get("/end-users/view/:id/referrals", Authenticate, endUserController.referrals);
   router.get("/end-users/get-purchase-order", Authenticate, endUserController.getMyPurchaseOrders);
   router.get("/end-users/invoice",Authenticate,endUserController.generateInvoice);
-  
-
 
   // Document 
   router.get("/document/list",  Authenticate, documentController.getList);
@@ -101,12 +104,22 @@ module.exports = function(app) {
   router.post("/testimonial/status", Authenticate,testimonialController.updateStatus);
   router.post("/testimonial/delete", Authenticate, testimonialController.delete);
 
+  // Blogs
+  router.post("/blog/create", Authenticate, upload.single("image"), blogController.createOrUpdate);
+  router.post("/blog/update:id",upload.single("image"), blogController.createOrUpdate);
+  router.get("/blog/list", Authenticate,blogController.list);
+  router.post("/blog/status", Authenticate, blogController.updateStatus);
+  router.post("/blog/delete", Authenticate, blogController.delete);
+  router.get("/blog/view/:id", Authenticate,  blogController.detail);
+
+
   // (open apis ) 
   router.get("/home/list", cmsController.getHomePage);
   router.get("/document/detail/:slug",  documentController.detailsBySlug);
   router.get("/document/getNotes", documentController.getListByFilter);
-  router.get("/document/subjects", documentController.getUniqueSubjects)
-  router.get("/document/exams", documentController.getUniqueExams)
+  router.get("/document/subjects", documentController.getUniqueSubjects);
+  router.get("/document/exams", documentController.getUniqueExams);
+  router.get("/document/languages", documentController.getUniqueLanguages);
   router.get("/settings/list",  getAllSettingsController.getSettings);
   router.get("/document/getDetail/:id", documentController.detailsById);
   router.get("/about-us/list", cmsController.getAboutUsPage);
@@ -115,6 +128,9 @@ module.exports = function(app) {
   router.get("/privacy-policy/list", cmsController.getPrivacy);
   router.get("/refund/list", cmsController.getRefund);
   router.get("/get-all-settings/list", cmsController.getSetting);
+  router.get("/get-all-blog-list",blogController.getAllPublishBlog);
+  router.get("/get-blog-detail/:slug",blogController.getPublishedBlogDetail);
+  
 
 
 
@@ -123,7 +139,8 @@ module.exports = function(app) {
   router.post("/end-user/login",validate(endUserSchemas.login),endUserController.login);
   router.get("/end-user/me", userAuth, endUserController.getMe);
   router.get("/end-user/getNotes", userAuth, documentController.getUploadDocumentByUser);
-  router.post("/end-user/logout", userAuth, endUserController.logout)
+  router.post("/end-user/logout", userAuth, endUserController.logout);
+  router.post("/end-user/update-profile",userAuth, endUserController.updateProfile)
   
   // notes api
   router.post("/end-user/document/create",userAuth,uploadDocument.fields([{ name: "file", maxCount: 1 },{ name: "sampleFile", maxCount: 1 },{ name: "docImage", maxCount: 1 }]),validate(documentValidation.create),documentController.create);
@@ -146,6 +163,17 @@ module.exports = function(app) {
   // Checkout 
   router.post ("/end-user/checkout", userAuth, documentController.createOrder);
   router.post("/end-user/verify-payment", userAuth, documentController.verifyPayment);
+  router.get("/end-user/get-revenue", userAuth, documentController.getSellerRevenue);
+  router.get("/end-user/get-dashboard", userAuth, documentController.getSellerDashboard);
+
+
+  // Razorpay 
+  router.post("/razorpay/create-fund-account",userAuth, documentController.createOrUpdateRazorpayAccount);
+
+  // Review and Rating
+  router.post("/end-user/review", userAuth, documentController.addOrUpdateReview);
+  router.get("/reviews/:productId",documentController.getReviewsByProduct);
+  //router.get("/review/:productId", userAuth, documentController.getMyReview);
 
   app.use("/api/admin", router);
 };
