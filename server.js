@@ -44,14 +44,37 @@ mongoose
    MIDDLEWARES
 ----------------------------*/
 
-const allowedOrigin = ["http://localhost:5173","http://localhost:3000","https://admin-stage.notesbyte.in","https://stage.notesbyte.in", "https://notesbyte.in", "https://admin.notesbyte.in"];
-app.use(helmet());
-app.disable("x-powered-by");
-app.use(logger("dev"));
-app.use(cors({ origin: allowedOrigin, methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+// const allowedOrigin = ["http://localhost:5173","http://localhost:3000","https://admin-stage.notesbyte.in","https://stage.notesbyte.in", "https://notesbyte.in", "https://admin.notesbyte.in"];
+// app.use(helmet());
+// app.disable("x-powered-by");
+// app.use(logger("dev"));
+// app.use(cors({ origin: allowedOrigin, methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
+// app.use(cookieParser());
+
+const allowedOrigin = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://admin-stage.notesbyte.in",
+  "https://stage.notesbyte.in",
+  "https://notesbyte.in",
+  "https://admin.notesbyte.in"
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // allow Postman or mobile apps
+
+    if (allowedOrigin.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true // important for cookies
+}));
 
 /* ---------------------------
    ROUTES
