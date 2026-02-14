@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate, ReviewAndRating, GlobalSetting, Revenue} = require("../../../models/index.js");
+const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate, ReviewAndRating, GlobalSetting, Revenue, Refferal} = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
 const documentSchemas = require("../document/validation.js");
 const slugify = require("slugify");
@@ -10,6 +10,7 @@ const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const {renderTemplate} = require('../../../helpers/renderTemplate.helper');
 const {sendEmail} = require('../../../helpers/email.helper.js');
+const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js");
 
 const Controller = {
 
@@ -1510,33 +1511,7 @@ const Controller = {
                 logData: order,
             });
 
-            // // Revenue Split Logic
-            // for (const item of cartItems.items) {
-            //     const baseAmount = item.product.price * item.quantity;
-
-            //     const platformFee = Number(
-            //         ((baseAmount * COMMISSION_PERCENT) / 100).toFixed(2)
-            //     );
-
-            //     const totalAmount = Number(
-            //         (baseAmount + platformFee).toFixed(2)
-            //     ); 
-            //     const sellerAmount = Number(
-            //         (totalAmount - platformFee).toFixed(2)
-            //     );
-
-            //     await Revenue.create({
-            //         orderId: purchaseOrder._id,
-            //         sellerId: item.sellerId,
-            //         buyerId: userId,
-            //         totalAmount,
-            //         adminCommission: platformFee,
-            //         sellerAmount,
-            //         commissionPercent: COMMISSION_PERCENT,
-            //         status: "PENDING",
-            //     });
-            // }
-
+            
 
             retData.status = "success";
             retData.code = 200;
@@ -1657,6 +1632,56 @@ const Controller = {
             }
 
             /* ----------------------------------------------------
+                REFERRAL LOGIC (FIRST PURCHASE ONLY)
+            ---------------------------------------------------- */
+
+            const buyer = await User.findById(purchaseOrder.userId);
+
+            const referralRecord = await Refferal.findOne({
+                referred_user_id: buyer._id,
+                status: "pending",
+                is_first_purchase: true
+            });
+
+            if (referralRecord) {
+                const globalSetting = await GlobalSetting.findOne({
+                    key: "global_settings_content",
+                }).lean();
+                
+                let settings = {};
+
+                if (globalSetting?.value) {
+                    settings = JSON.parse(globalSetting.value);
+                }
+
+                const REFERRAL_PERCENT = settings.refferalCommission ?? 5;
+                const MAX_CAP = settings.minRefferalAmt ?? 20;
+
+                const orderAmount = purchaseOrder.amount;
+
+                let referralCommission = (orderAmount * REFERRAL_PERCENT) / 100;
+
+                // Apply MAX CAP
+                if (referralCommission > MAX_CAP) {
+                    referralCommission = MAX_CAP;
+                }
+
+                // Update Referral Record
+                referralRecord.status = "completed";
+                referralRecord.order_id = purchaseOrder._id;
+                referralRecord.order_amount = orderAmount;
+                referralRecord.commission_percent = REFERRAL_PERCENT;
+                referralRecord.commission_amount = referralCommission;
+                referralRecord.commission_status = "paid";
+                referralRecord.referral_code_used = true;
+                referralRecord.completed_at = new Date();
+                referralRecord.is_first_purchase = false;
+
+                await referralRecord.save();
+
+                console.log("Referral commission applied:", referralCommission);
+            }
+            /* ----------------------------------------------------
                 CREATE AN ENTRY RENVENUE TABLE (SPLIT PAYMENT)
             ---------------------------------------------------- */
             const cartItems = await Cart.findOne({ user: purchaseOrder.userId })
@@ -1707,40 +1732,24 @@ const Controller = {
             });
 
             if (template) {
-            
+
                 const parsedItems = purchaseOrder.items.map(item => ({
-                    productId: item.productId._id,
                     title: item.productId.title,
-                    shortDescription: item.productId.shortDescription,
                     price: item.productId.price,
-                    author: item.productId.author,
-                    subject: item.productId.subject,
-                    exam: item.productId.exam,
-                    language: item.productId.language,
-                    pages: item.productId.pages,
-                    format: item.productId.format,
-                    filePath: item.productId.filePath,
                     quantity: item.quantity,
                 }));
 
                 const itemsHTML = Controller.buildOrderItemsHTML(parsedItems);
 
-                const emailBody = template.body
-                    .replace("{{name}}", purchaseOrder.userId.name)
-                    .replace("{{orderId}}", purchaseOrder._id.toString())
-                    .replace("{{amount}}", purchaseOrder.amount)
-                    .replace("{{items}}", itemsHTML);
-
-                const emailSubject = template.subject.replace(
-                    "{{orderId}}",
-                    purchaseOrder._id.toString()
-                );
-
-                console.log(emailBody);
-                await sendEmail({
+                await sendDynamicTemplateEmail({
                     to: purchaseOrder.userId.email,
-                    subject: emailSubject,
-                    html: emailBody.replace(/\n/g, "<br/>"),
+                    templateKey: "ORDER_CONFIRMATION",
+                    variables: {
+                        name: purchaseOrder.userId.name,
+                        orderId: purchaseOrder._id.toString(),
+                        amount: purchaseOrder.amount,
+                        items: itemsHTML,
+                    },
                 });
             }
 

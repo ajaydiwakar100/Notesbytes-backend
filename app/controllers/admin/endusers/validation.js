@@ -45,6 +45,18 @@ const endUserSchemas = {
           'Phone number must contain only digits and be between 7 to 15 characters long',
         'any.required': 'Phone number is required',
       }),
+    
+    referralCode: Joi.string()
+      .trim()
+      .uppercase()
+      .pattern(/^[A-Z0-9]{4,20}$/)
+      .optional()
+      .allow(null, "")
+      .messages({
+        "string.pattern.base":
+          "Referral code must contain only uppercase letters and numbers",
+      }),
+
   }),
 
   login: Joi.object().keys({

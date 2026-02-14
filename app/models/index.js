@@ -16,5 +16,6 @@ module.exports = {
   ReviewAndRating: require('./review.model'),
   Revenue: require('./revenue.model'),
   Blog: require('./blog.model'),
+  Refferal: require('./referal.model'),
   
-};
+};  

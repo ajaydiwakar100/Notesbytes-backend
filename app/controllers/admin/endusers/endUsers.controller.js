@@ -1,12 +1,15 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { User,PurchaseOrder, GlobalSetting, EmailTemplate } = require("../../../models/index.js");
+const { User,PurchaseOrder, GlobalSetting, EmailTemplate, Refferal } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const AppHelpers = require("../../../helpers/index.js");
 const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
 const PDFDocument = require("pdfkit");
 const { sendEmail } = require("../../../helpers/email.helper.js");
+const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js");
 const crypto = require("crypto");
+const { isEmpty } = require("lodash");
+
 
 const Controller = {
 
@@ -32,6 +35,7 @@ const Controller = {
         email,
         phone,
         password,
+        referralCode 
       } = req.body;
 
       // Check if email already exists
@@ -55,7 +59,7 @@ const Controller = {
       }
 
       // Generate referral code
-      const referralCode = await generateUniqueReferralCode(name);
+      const newReferralCode = await generateUniqueReferralCode(name);
       
       // 🔐 Generate email verification token
       const verificationToken = crypto.randomBytes(32).toString("hex");
@@ -72,57 +76,60 @@ const Controller = {
         phone,
         password: hashedPassword,
         userType,
-        referralCode,
+        referralCode: newReferralCode,
         status: 1,
         emailVerificationToken: verificationToken,
         emailVerificationExpires: Date.now() + 24 * 60 * 60 * 1000,
+        referredBy:referralCode
       });
 
-      // const updatedUser = await User.findByIdAndUpdate(
-      //   user._id,
-      //   {
-      //     $inc: { token_version: 1 },
-      //   },
-      //   { new: true }
-      // );
+      if (referralCode && referralCode.trim() !== "") {
 
-      // const token = await AppHelpers.GenJWTToken({
-      //   userType: "users",
-      //   id: user._id,
-      //   tokenVersion: updatedUser.token_version,
-      // });
+        const refferdBy = referralCode.trim().toUpperCase();
 
-      // // Remove password from response
-      // const userObj = user.toObject();
-      // delete userObj.password;
-     
-      // // Send token as HttpOnly cookie (more secure than sending in JSON)
-      // res.cookie("userAuthToken", token, {
-      //   httpOnly: true,
-      //   secure: false, 
-      //   sameSite: "Lax",
-      //   maxAge: 6 * 60 * 60 * 1000, // 6 hours
-      // });
+        // Find referrer
+        const referrer = await User.findOne({ referralCode: refferdBy });
 
-       /* 📧 Send Verification Email */
-      const template = await EmailTemplate.findOne({
-        key: "EMAIL_VERIFICATION",
-        isActive: true,
-      });
+        if (!referrer) {
+          throw new Error("Invalid referral code");
+        }
 
-      if (template) {
-        const verificationLink = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+        // Prevent self-referral
+        if (referrer._id.toString() === user._id.toString()) {
+          throw new Error("You cannot refer yourself");
+        }
 
-        const emailBody = template.body
-          .replace("{{name}}", user.name)
-          .replace("{{verificationLink}}", verificationLink);
-
-        await sendEmail({
-          to: user.email,
-          subject: template.subject,
-          html: emailBody.replace(/\n/g, "<br/>"),
+        // Prevent duplicate referral entry
+        const existingReferral = await Refferal.findOne({
+          referred_user_id: user._id
         });
+
+        if (existingReferral) {
+          throw new Error("Referral already applied");
+        }
+
+        // ✅ Create referral record
+        await Refferal.create({
+          referrer_id: referrer._id,
+          referred_user_id: user._id,
+          referral_code_used: false,
+          status: "pending",
+          commission_status: "pending",
+          is_first_purchase: true
+        });
+
       }
+
+      // Send email with template
+      const verificationLink = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+      await sendDynamicTemplateEmail({
+        to: user.email,
+        templateKey: "EMAIL_VERIFICATION",
+        variables: {
+          name: user.name,
+          verificationLink,
+        },
+      });
       retData.status = "success";
       retData.code = 201;
       retData.httpCode = 201;
@@ -330,7 +337,7 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      if (!user.isEmailVerified) {
+      if (!user.emailVerified) {
         retData.status = "error";
         retData.code = 401;
         retData.httpCode = 401;
@@ -688,6 +695,13 @@ const Controller = {
     try {
       const { token } = req.params;
 
+      if (!token) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Verification token is required";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
       const user = await User.findOne({
         emailVerificationToken: token,
         emailVerificationExpires: { $gt: Date.now() },
@@ -700,28 +714,28 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
+      if (user.emailVerified) {
+        retData.status = "success";
+        retData.httpCode = 200;
+        retData.msg = "Email already verified";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // ✅ Mark verified
       user.emailVerified = true;
       user.emailVerificationToken = null;
       user.emailVerificationExpires = null;
       await user.save();
 
-      // Send welcome email
-      const template = await EmailTemplate.findOne({
-        key: "WELCOME_WITH_REFERRAL",
-        isActive: true,
+      // ✅ Send Welcome Email using dynamic template
+      await sendDynamicTemplateEmail({
+        to: user.email,
+        templateKey: "WELCOME_WITH_REFERRAL",
+        variables: {
+          name: user.name,
+          referralCode: user.referralCode || "",
+        },
       });
-
-      if (template && user.email) {
-        const emailBody = template.body
-          .replace("{{name}}", user.name)
-          .replace("{{referralCode}}", user.referralCode);
-
-        await sendEmail({
-          to: user.email,
-          subject: template.subject,
-          html: emailBody.replace(/\n/g, "<br/>"),
-        });
-      }
 
       retData.status = "success";
       retData.httpCode = 200;
@@ -732,7 +746,8 @@ const Controller = {
     } catch (err) {
       return Controller.handleError(res, err, "ERROR verifying email");
     }
-  },
+  }
+
 };
 
 module.exports = Controller;
