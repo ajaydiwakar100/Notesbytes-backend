@@ -188,7 +188,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "/Users/ajaydiwakar/Development/Notesbytes/backend/app/generated/prisma",
+      "value": "/var/www/html/Notesbytes-backend/app/generated/prisma",
       "fromEnvVar": null
     },
     "config": {
@@ -197,12 +197,12 @@ const config = {
     "binaryTargets": [
       {
         "fromEnvVar": null,
-        "value": "darwin-arm64",
+        "value": "debian-openssl-3.0.x",
         "native": true
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "/Users/ajaydiwakar/Development/Notesbytes/backend/prisma/schema.prisma",
+    "sourceFilePath": "/var/www/html/Notesbytes-backend/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
