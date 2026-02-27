@@ -746,7 +746,127 @@ const Controller = {
     } catch (err) {
       return Controller.handleError(res, err, "ERROR verifying email");
     }
-  }
+  },
+
+  // ---------------------------
+  // Forgot Password
+  // ---------------------------
+  forgotPassword: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Email is required";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+      if (!user) {
+        retData.status = "error";
+        retData.httpCode = 404;
+        retData.msg = "User not found with this email";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      if (!user.emailVerified) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Please verify your email first";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // ✅ Generate Secure Token
+      const resetToken = crypto.randomBytes(32).toString("hex");
+
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+
+      await user.save();
+
+      // ✅ Create Reset Link
+      const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+      // ✅ Send Email
+      await sendDynamicTemplateEmail({
+        to: user.email,
+        templateKey: "FORGOT_PASSWORD",
+        variables: {
+          name: user.name,
+          resetLink,
+        },
+      });
+
+      retData.status = "success";
+      retData.httpCode = 200;
+      retData.msg = "Password reset link sent to your email";
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR forgot password");
+    }
+  },
+
+  // ---------------------------
+  // Reset Password
+  // ---------------------------
+  resetPassword: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { token, password } = req.body;
+
+      if (!token || !password) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Token and password are required";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      const user = await User.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() },
+      });
+
+      if (!user) {
+        retData.status = "error";
+        retData.httpCode = 400;
+        retData.msg = "Invalid or expired reset link";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // ✅ Update Password
+      user.password = await bcrypt.hash(password, 10);; // assuming pre-save hook hashes it
+
+      user.resetPasswordToken = null;
+      user.resetPasswordExpires = null;
+
+      await user.save();
+
+      // ✅ Optional: Send confirmation email
+      await sendDynamicTemplateEmail({
+        to: user.email,
+        templateKey: "PASSWORD_CHANGED",
+        variables: {
+          name: user.name,
+        },
+      });
+
+      retData.status = "success";
+      retData.httpCode = 200;
+      retData.msg = "Password reset successfully";
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR resetting password");
+    }
+  },
 
 };
 

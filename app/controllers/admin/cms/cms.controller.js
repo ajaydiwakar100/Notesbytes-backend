@@ -74,14 +74,17 @@ const Controller = {
             documents: featuredDocs.map((doc) => ({
                 id: doc._id,
                 title: doc.title,
+                author:doc.author,
                 subject: doc.subject,
                 description: doc.shortDescription,
                 exam: doc.exam,
-                price: `₹${doc.price}`,
+                price: doc.price,
+                finalPrice: doc.finalPrice ? doc.finalPrice: null,
                 rating: doc.rating || 0,
                 reviews: doc.reviewsCount || 0,
                 image: doc.docImage,
                 slug: doc.slug,
+
             })),
             };
 

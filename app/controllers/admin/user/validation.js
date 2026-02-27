@@ -19,9 +19,8 @@ const userSchemas = {
         email: Joi.string().required(),
     }),
     resetPassword: Joi.object().keys({
-        email: Joi.string().required(),
-        otp: Joi.string().required(),
-        newPassword: Joi.string().required(), 
+        password: Joi.string().required(), 
+        token:Joi.string().required(), 
     }),
     changePassword: Joi.object().keys({
         oldPassword: Joi.string().required(),

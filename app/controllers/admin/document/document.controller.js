@@ -97,7 +97,9 @@ const Controller = {
                 shortDescription,
                 originalPrice,
                 publishStatus,
-                finalPrice
+                finalPrice,
+                contentOwnership,
+                consentGivenAt
             } = req.body;
 
             // -------------------------------------
@@ -195,7 +197,9 @@ const Controller = {
                 reviewsCount: 0,
                 shortDescription,
                 originalPrice,
-                finalPrice
+                finalPrice,
+                contentOwnership: contentOwnership,
+                consentGivenAt: consentGivenAt,
             });
 
             retData.status = "success";
@@ -426,14 +430,35 @@ const Controller = {
                 updatedAt: new Date()
             };
 
+            const document = await Document.findByIdAndUpdate(id, updateObj, { new: true }).populate("uploadedBy");
+            
             if (approvalStatus === "approved") {
                 updateObj.approvedAt = new Date();
                 updateObj.rejectedReason = null;
                 updateObj.rejectedAt = null;
+
+                await sendDynamicTemplateEmail({
+                    to: document.uploadedBy.email,
+                    templateKey: "DOCUMENT_APPROVED",
+                    variables: {
+                        name: document.uploadedBy.name,
+                        title: document.title,
+                    },
+                });
             } else {
                 updateObj.rejectedReason = reason;
                 updateObj.rejectedAt = new Date();
                 updateObj.approvedAt = null;
+
+                await sendDynamicTemplateEmail({
+                    to: document.uploadedBy.email,
+                    templateKey: "DOCUMENT_REJECTED",
+                    variables: {
+                        name: document.uploadedBy.name,
+                        title: document.title,
+                        reason: reason,
+                    },
+                });
             }
 
             const doc = await Document.findByIdAndUpdate(id, updateObj, { new: true });
@@ -584,55 +609,121 @@ const Controller = {
         try {
             const { subjects, exams, price, rating, search, sort } = req.query;
 
-            let filters = {};
-            let sortQuery = { createdAt: -1 }; // default: newest
+            let andConditions = [];
+            let sortQuery = { createdAt: -1 }; // default newest
 
-            // SUBJECT FILTER
+            /* ==============================
+            SUBJECT FILTER (Ignore Case)
+            ============================== */
             if (subjects) {
-            filters.subject = { $in: subjects.split(",") };
+                const subjectArray = subjects.split(",");
+
+                andConditions.push({
+                    subject: {
+                        $in: subjectArray.map(sub =>
+                            new RegExp(`^${sub.trim()}$`, "i")
+                        )
+                    }
+                });
             }
 
-            // EXAM FILTER
+            /* ==============================
+            EXAM FILTER (Ignore Case)
+            ============================== */
             if (exams) {
-            filters.exam = { $in: exams.split(",") };
+                const examArray = exams.split(",");
+
+                andConditions.push({
+                    exam: {
+                        $in: examArray.map(ex =>
+                            new RegExp(`^${ex.trim()}$`, "i")
+                        )
+                    }
+                });
             }
 
-            // PRICE FILTER
+            /* ==============================
+            PRICE FILTER
+            ============================== */
             if (price) {
-            if (price === "under200") filters.price = { $lt: 200 };
-            if (price === "200-400") filters.price = { $gte: 200, $lte: 400 };
-            if (price === "above400") filters.price = { $gt: 400 };
+                if (price === "under200") {
+                    andConditions.push({ price: { $lt: 200 } });
+                }
+
+                if (price === "200-400") {
+                    andConditions.push({ price: { $gte: 200, $lte: 400 } });
+                }
+
+                if (price === "above400") {
+                    andConditions.push({ price: { $gt: 400 } });
+                }
             }
 
-            // RATING FILTER
+            /* ==============================
+            RATING FILTER
+            ============================== */
             if (rating) {
-            filters.rating = { $gte: Number(rating) };
+                andConditions.push({
+                    rating: { $gte: Number(rating) }
+                });
             }
 
-            // SEARCH
-            if (search) {
-            filters.title = { $regex: search, $options: "i" };
+            /* ==============================
+            SEARCH (Ignore Case)
+            ============================== */
+            if (search && search.trim() !== "") {
+                const searchValue = search.trim();
+
+                andConditions.push({
+                    $or: [
+                        { title: { $regex: searchValue, $options: "i" } },
+                        { subject: { $regex: searchValue, $options: "i" } },
+                        { exam: { $regex: searchValue, $options: "i" } },
+                        { description: { $regex: searchValue, $options: "i" } }
+                    ]
+                });
             }
 
-            // SORT
+            /* ==============================
+            ONLY APPROVED DOCUMENTS
+            ============================== */
+            andConditions.push({ approvalStatus: "approved" });
+
+            const filters =
+                andConditions.length > 0
+                    ? { $and: andConditions }
+                    : {};
+
+            /* ==============================
+            SORTING
+            ============================== */
             if (sort === "price-low") sortQuery = { price: 1 };
             if (sort === "price-high") sortQuery = { price: -1 };
             if (sort === "rating") sortQuery = { rating: -1 };
             if (sort === "newest") sortQuery = { createdAt: -1 };
 
-            filters.approvalStatus = "approved";
+            /* ==============================
+            FETCH DOCUMENTS
+            ============================== */
             const documents = await Document.find(filters)
-            .populate("uploadedBy", "name email")
-            .sort(sortQuery)
-            .lean();
+                .populate("uploadedBy", "name email")
+                .sort(sortQuery)
+                .lean();
 
+            /* ==============================
+            FIX IMAGE URL
+            ============================== */
             const baseUrl = process.env.BASE_URL;
+
             documents.forEach(doc => {
-            if (doc.docImage && !doc.docImage.startsWith("http")) {
-                doc.docImage = `${baseUrl}/${doc.docImage}`;
-            }
+                if (doc.docImage && !doc.docImage.startsWith("http")) {
+                    doc.docImage = `${baseUrl}/${doc.docImage}`;
+                }
             });
 
+            /* ==============================
+            RESPONSE
+            ============================== */
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
@@ -640,6 +731,7 @@ const Controller = {
             retData.msg = "Records found";
 
             return AppHelpers.Utils.cRes(res, retData);
+
         } catch (err) {
             return Controller.handleError(res, err, "ERROR in document list");
         }

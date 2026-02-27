@@ -34,7 +34,7 @@ module.exports = function(app) {
   router.post("/verify-otp", validate(userSchemas.verifyOtp), AuthController.verifyOtp);
   router.post("/forgot-password", validate(userSchemas.forgotPassword), AuthController.forgetPassword);
   router.post("/reset-password", validate(userSchemas.resetPassword), AuthController.resetPassword);
-  
+
 
 
   // After Login
@@ -42,6 +42,7 @@ module.exports = function(app) {
   router.post("/logout", Authenticate,  AuthController.logout);
   router.post("/change-password", validate(userSchemas.changePassword), Authenticate,  AuthController.changePassword);
   router.post("/update-profile", validate(userSchemas.updateProfile),  Authenticate, AuthController.updateProfile);
+  router.get("/dashboard", Authenticate, AuthController.dashboard);
 
   // Sub admin
   router.get("/sub-admin/list",  Authenticate, subAdminsController.list);
@@ -141,6 +142,8 @@ module.exports = function(app) {
   router.get("/end-user/getNotes", userAuth, documentController.getUploadDocumentByUser);
   router.post("/end-user/logout", userAuth, endUserController.logout);
   router.post("/end-user/update-profile",userAuth, endUserController.updateProfile)
+  router.post("/end-user/forgot-password", endUserController.forgotPassword);
+  router.post("/end-user/reset-password", endUserController.resetPassword);
   
   // notes api
   router.post("/end-user/document/create",userAuth,uploadDocument.fields([{ name: "file", maxCount: 1 },{ name: "sampleFile", maxCount: 1 },{ name: "docImage", maxCount: 1 }]),validate(documentValidation.create),documentController.create);

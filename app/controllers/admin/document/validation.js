@@ -79,6 +79,12 @@ const documentSchemas = {
     isFeature: Joi.boolean()
       .default(false),
 
+    contentOwnership: Joi.boolean()
+      .default(false),
+
+    consentGivenAt: Joi.date()
+      .default(null),
+
     // These are auto-managed (do NOT send from client)
     noOfDownloads: Joi.number()
       .integer()

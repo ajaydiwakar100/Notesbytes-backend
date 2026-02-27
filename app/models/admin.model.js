@@ -89,7 +89,17 @@ const adminSchema = new mongoose.Schema(
     last_login: {
       type: Date,
       default: null
-    }
+    },
+
+    reset_token:{  
+      type: String,
+      default: null 
+    },  
+    
+    reset_token_expiry :{  
+      type: Date,
+      default: null 
+    },  
 
   },
   {

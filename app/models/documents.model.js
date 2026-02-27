@@ -75,7 +75,16 @@ const documentSchema = new mongoose.Schema(
     publishStatus: { type: Number, enum: [0, 1], default: 0 },
 
     // Feature Flag
-    isFeature: { type: Boolean, default: false }
+    isFeature: { type: Boolean, default: false },
+
+    contentOwnership: {
+      type: Boolean,
+      required: true,
+      default: false
+    },
+    consentGivenAt: {
+      type: Date
+    },
   },
   { timestamps: true }
 );

@@ -1,7 +1,9 @@
 const bcrypt = require("bcrypt");
-const { Admin } = require("../../../models/index.js");
+const { Admin, User, Document, PurchaseOrder, } = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
 const userHelper = require("./helper.js");
+const crypto = require("crypto");
+const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js")
 
 const Controller = {
   // ---------------------------
@@ -61,7 +63,7 @@ const Controller = {
   login: async function (req, res) {
     const retData = AppHelpers.Utils.responseObject();
     const { email, password } = req.body;
-
+    console.log(email);
     try {
       const admin = await Admin.findOne({ email });
       if (!admin) {
@@ -165,6 +167,14 @@ const Controller = {
     const retData = AppHelpers.Utils.responseObject();
 
     try {
+      if (!email) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.msg = "Email is required";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // 1️⃣ Find admin
       const admin = await Admin.findOne({ email });
 
       if (!admin) {
@@ -174,17 +184,36 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      // 2️⃣ Generate secure reset token
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+      // 3️⃣ Save token in DB
       await Admin.findByIdAndUpdate(admin._id, {
-        otp_code: otpCode,
-        otp_expires_at: otpExpiresAt,
+        reset_token: resetToken,
+        reset_token_expiry: resetTokenExpiry,
+      });
+
+      // 4️⃣ Create reset link
+      const resetLink = `${process.env.ADMIN_BASE_URL}/reset-password?token=${resetToken}`;
+
+
+      // 5️⃣ Send email
+     await sendDynamicTemplateEmail({
+        to: admin.email,
+        templateKey: "FORGOT_PASSWORD",
+        variables: {
+          name: admin.name,
+          resetLink,
+        },
       });
 
       retData.status = "success";
-      retData.msg = AppHelpers.ResponseMessages.CODE_SEND_EMAIL;
+      retData.code = 200;
+      retData.msg = "Reset link sent to your email";
+
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in forgetPassword");
     }
@@ -193,42 +222,49 @@ const Controller = {
   // ---------------------------
   // Reset Password
   // ---------------------------
+
+
   resetPassword: async function (req, res) {
-    const { email, otp, newPassword } = req.body;
+    const { token, password } = req.body;
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const admin = await Admin.findOne({ email });
+      if (!token || !password) {
+        retData.status = "error";
+        retData.code = 400;
+        retData.msg = "Token and password are required";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // 1️⃣ Find admin by valid token
+      const admin = await Admin.findOne({
+        reset_token: token,
+        reset_token_expiry: { $gt: new Date() },
+      });
 
       if (!admin) {
         retData.status = "error";
-        retData.code = 404;
-        retData.msg = AppHelpers.ResponseMessages.USER_NOT_FOUND;
-        return AppHelpers.Utils.cRes(res, retData);
-      }
-
-      if (
-        admin.otp_code !== otp ||
-        !admin.otp_expires_at ||
-        admin.otp_expires_at < new Date()
-      ) {
-        retData.status = "error";
         retData.code = 400;
-        retData.msg = AppHelpers.ResponseMessages.INVALID_OTP_EXPIRED;
+        retData.msg = "Invalid or expired reset link";
         return AppHelpers.Utils.cRes(res, retData);
       }
 
-      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      // 2️⃣ Hash new password
+      const hashedPassword = await bcrypt.hash(password, 10);
 
+      // 3️⃣ Update password and clear token
       await Admin.findByIdAndUpdate(admin._id, {
         password: hashedPassword,
-        otp_code: null,
-        otp_expires_at: null,
+        reset_token: null,
+        reset_token_expiry: null,
       });
 
       retData.status = "success";
+      retData.code = 200;
       retData.msg = AppHelpers.ResponseMessages.PASSWORD_RESET_SUCCESS;
+
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in resetPassword");
     }
@@ -367,6 +403,45 @@ const Controller = {
     }
   },
 
+  dashboard: async function (req, res) {
+    try {
+     
+      // Total Users
+      const totalUsers = await User.countDocuments({
+        //role: "user", // adjust if needed
+      });
+
+      // Purchased Documents (total purchased items count)
+      const totalPurchasedDocs = await PurchaseOrder.aggregate([
+        { $unwind: "$items" },
+        { $count: "total" }
+      ]);
+
+      // Pending Documents
+      const totalPendingDocs = await Document.countDocuments({
+        approvalStatus: "pending", // adjust based on your schema
+      });
+
+      // Approved Documents
+      const totalApprovedDocs = await Document.countDocuments({
+        approvalStatus: "approved",
+      });
+
+      const retData = AppHelpers.Utils.responseObject();
+      retData.status = "success";
+      retData.msg = "Dashboard data fetched successfully";
+      retData.data = {
+        totalUsers,
+        totalPurchasedDocs: totalPurchasedDocs[0]?.total || 0,
+        totalPendingDocs,
+        totalApprovedDocs,
+      };
+
+      return AppHelpers.Utils.cRes(res, retData);
+    } catch (err) {
+      return Controller.handleError(res, err, "ERROR in dashboard");
+    }
+  },
 };
 
 module.exports = Controller;

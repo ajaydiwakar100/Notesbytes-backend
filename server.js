@@ -48,7 +48,7 @@ const allowedOrigin = ["http://localhost:5173","http://localhost:3000","https://
 app.use(helmet());
 app.disable("x-powered-by");
 app.use(logger("dev"));
-app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
+app.use(cors({ origin: allowedOrigin, methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
