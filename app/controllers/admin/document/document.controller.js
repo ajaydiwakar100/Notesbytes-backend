@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate, ReviewAndRating, GlobalSetting, Revenue, Refferal} = require("../../../models/index.js");
+const { Document,User, Wishlist, Cart, Invoice, PaymentLog, PurchaseOrder, EmailTemplate, ReviewAndRating, GlobalSetting, Revenue, Refferal, PaymentDetail} = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
 const documentSchemas = require("../document/validation.js");
 const slugify = require("slugify");
@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const {renderTemplate} = require('../../../helpers/renderTemplate.helper');
 const {sendEmail} = require('../../../helpers/email.helper.js');
 const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js");
+
 
 const Controller = {
 
@@ -312,6 +313,10 @@ const Controller = {
                 document.filePath = `${process.env.BASE_URL}/${document.filePath}`;
             }
 
+            if (document.sampleFile && !document.sampleFile.includes("http")) {
+                document.sampleFile = `${process.env.BASE_URL}/${document.sampleFile}`;
+            }
+
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
@@ -607,7 +612,7 @@ const Controller = {
         const retData = AppHelpers.Utils.responseObject();
 
         try {
-            const { subjects, exams, price, rating, search, sort } = req.query;
+            const { subjects, exams, price, rating, search, sort, callType } = req.query;
 
             let andConditions = [];
             let sortQuery = { createdAt: -1 }; // default newest
@@ -684,10 +689,15 @@ const Controller = {
                 });
             }
 
+
             /* ==============================
             ONLY APPROVED DOCUMENTS
             ============================== */
-            andConditions.push({ approvalStatus: "approved" });
+            //if(callType == 'api'){
+                andConditions.push({ approvalStatus: "approved" });
+                andConditions.push({ status: 1 });
+            //}
+            
 
             const filters =
                 andConditions.length > 0
@@ -1510,10 +1520,9 @@ const Controller = {
     // --------------------------------------------------------
     // CREATE ORDER ON RAZORPAY
     // --------------------------------------------------------
-    createOrder: async (req, res) => {
+    createOrder: async (req, res) => {  
         const retData = AppHelpers.Utils.responseObject();
     
-
         try {
             const { amount, currency, checkoutType } = req.body;
             const userId = req.user.id;
@@ -1768,8 +1777,19 @@ const Controller = {
                 referralRecord.referral_code_used = true;
                 referralRecord.completed_at = new Date();
                 referralRecord.is_first_purchase = false;
-
                 await referralRecord.save();
+
+                await Revenue.create({
+                    orderId: purchaseOrder._id,
+                    sellerId: buyer._id,
+                    buyerId: purchaseOrder.userId,
+                    totalAmount: orderAmount,
+                    adminCommission: 0,
+                    sellerAmount: referralCommission,
+                    commissionPercent: 0,
+                    status: "PENDING",
+                    payoutType: "Referal Payout"
+                });
 
                 console.log("Referral commission applied:", referralCommission);
             }
@@ -1793,8 +1813,11 @@ const Controller = {
             // Revenue Split Logic
             for (const item of cartItems.items) {
                 const baseAmount = item.product.price * item.quantity;
+                
                 const platformFee = item.product.finalPrice - baseAmount;
                 const sellerAmount = baseAmount;
+
+                
                 await Revenue.create({
                     orderId: purchaseOrder._id,
                     sellerId: item.sellerId,
@@ -1804,6 +1827,7 @@ const Controller = {
                     sellerAmount,
                     commissionPercent: 0,
                     status: "PENDING",
+                    payoutType: "Seller Payout"
                 });
             }
 
@@ -2379,6 +2403,648 @@ const Controller = {
             retData.msg = err.message || "Failed to fetch dashboard stats";
             return AppHelpers.Utils.cRes(res, retData);
         }
+    },
+
+    // --------------------------------------------------------
+    // SAVE / UPDATE PAYMENT DETAILS
+    // --------------------------------------------------------
+    savePaymentDetails: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const sellerId = req.user.id;
+
+            const {
+                consentAccepted,
+                bankAccount,
+                upi
+            } = req.body;
+
+            // -----------------------------
+            // CONSENT VALIDATION
+            // -----------------------------
+            if (!consentAccepted) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.msg = "Please accept consent before saving payment details.";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            let updateData = {
+                userId: sellerId,
+                consentAccepted,
+            };
+
+            let hasBank = false;
+            let hasUpi = false;
+
+            // -----------------------------
+            // BANK VALIDATION (if provided)
+            // -----------------------------
+            if (bankAccount) {
+
+                if (
+                    !bankAccount?.name ||
+                    !bankAccount?.phone ||
+                    !bankAccount?.account_number ||
+                    !bankAccount?.ifsc
+                ) {
+                    retData.status = "error";
+                    retData.code = 400;
+                    retData.msg = "Complete bank details are required.";
+                    return AppHelpers.Utils.cRes(res, retData);
+                }
+
+                hasBank = true;
+
+                updateData = {
+                    ...updateData,
+                    accountHolderName: bankAccount.name,
+                    accountHolderPhoneNumber: bankAccount.phone,
+                    accountNumber: bankAccount.account_number,
+                    ifscCode: bankAccount.ifsc,
+                    bankName: bankAccount.bankName,
+                };
+            }
+
+            // -----------------------------
+            // UPI VALIDATION (if provided)
+            // -----------------------------
+            if (upi) {
+
+                if (!upi?.address) {
+                    retData.status = "error";
+                    retData.code = 400;
+                    retData.msg = "UPI ID is required.";
+                    return AppHelpers.Utils.cRes(res, retData);
+                }
+
+                hasUpi = true;
+
+                updateData = {
+                    ...updateData,
+                    upiId: upi.address,
+                };
+            }
+
+            // -----------------------------
+            // REQUIRE AT LEAST ONE
+            // -----------------------------
+            if (!hasBank && !hasUpi) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.msg = "Provide bank details or UPI ID.";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // -----------------------------
+            // SAVE / UPDATE
+            // -----------------------------
+            const payment = await PaymentDetail.findOneAndUpdate(
+                { userId: sellerId },
+                updateData,
+                { new: true, upsert: true }
+            );
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Payment details saved successfully.";
+            retData.data = payment;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to save payment details";
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET SELLER PAYMENT DETAILS
+    // --------------------------------------------------------
+    getPaymentDetails: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const sellerId = req.user.id;
+
+            const payment = await PaymentDetail.findOne({ userId: sellerId }).lean();
+
+            if (!payment) {
+                retData.status = "success";
+                retData.code = 200;
+                retData.data = null;
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // 🔒 Mask account number
+            const maskedAccountNumber = payment.accountNumber
+                ? payment.accountNumber
+                : null;
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.data = {
+                ...payment,
+                accountNumber: maskedAccountNumber,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to fetch payment details";
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // UPDATE SELLER STATUS
+    // --------------------------------------------------------
+    updateSellerStatus: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const userId = req.user.id;
+            const { isSellerAccount } = req.body;
+
+            const user = await User.findByIdAndUpdate(
+                userId,
+                { isSellerAccount },
+                { new: true }
+            );
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = isSellerAccount
+                ? "Seller account activated."
+                : "Seller account deactivated.";
+            retData.data = user;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to update seller status";
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // GET ALL REVENUE FOR LOGGED-IN SELLER
+    // --------------------------------------------------------
+    getAdminRevenveDetails: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+
+            const revenues = await Revenue.find()
+                .sort({ createdAt: -1 })
+                .populate({
+                    path: "buyerId",
+                    select: "name email",
+                })
+                .populate({
+                    path: "sellerId",
+                    select: "name email",
+                })
+                .populate({
+                    path: "orderId",
+                    select: "orderNumber totalAmount payoutId payoutType paidAmount",
+                })
+                .lean();
+
+            /* -----------------------------
+            BALANCE CALCULATION
+            ----------------------------- */
+            const balances = {
+                pending: 0,
+                settled: 0,
+                failed: 0,
+                partial:0
+            };
+
+            /* -----------------------------
+            TRANSACTIONS GROUPING
+            ----------------------------- */
+            const transactions = {
+                pending: [],
+                settled: [],
+                failed:  [],
+                partial: []
+            };
+
+            revenues.forEach((rev) => {
+
+                const amount = rev.totalAmount || 0;
+
+                const tx = {
+                    _id: rev._id,
+                    sellerAmount: rev.sellerAmount,
+                    adminCommission: rev.adminCommission,
+                    transactionId: rev.payoutId || "N/A",
+                    userName: rev.buyerId?.name || "N/A",
+                    userEmail: rev.buyerId?.email || "N/A",
+                    sellerName: rev.sellerId?.name || "N/A",
+                    payoutType: rev.payoutType || "N/A",
+                    payoutId: rev.orderId?.payoutId || "N/A",
+                    orderId: rev.orderId?._id || null,
+                    amount,
+                    status: rev.status,
+                    paymentDate: rev.paymentPaidDate? new Date(rev.paymentPaidDate).toLocaleDateString(): "N/A",
+                    createdAt: rev.createdAt,
+                };
+
+                if (rev.status === "PENDING" || rev.status === "PROCESSING") {
+                    balances.pending += amount;
+                    transactions.pending.push(tx);
+                }
+
+                if (rev.status === "SETTLED") {
+                    balances.settled += amount;
+                    transactions.settled.push(tx);
+                }
+
+                if (rev.status === "FAILED") {
+                    balances.failed += amount;
+                    transactions.failed.push(tx);
+                }
+
+                if (rev.status === "PARTIAL") {
+                    balances.partial += amount;
+                    transactions.partial.push(tx);
+                }
+
+            });
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.data = {
+                balances,
+                transactions,
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to fetch admin revenue";
+
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+
+    // --------------------------------------------------------
+    // MARK REVENUE PAID REVENUE FOR LOGGED-IN SELLER
+    // --------------------------------------------------------
+    markRevenuePaid: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+
+            const { revenueId, transactionId, amount, status } = req.body;
+
+            if (!revenueId) {
+            retData.status = "error";
+            retData.msg = "Revenue ID is required";
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const revenue = await Revenue.findById(revenueId);
+
+            if (!revenue) {
+            retData.status = "error";
+            retData.msg = "Revenue record not found";
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            /* -------------------------
+            UPDATE PAYMENT DETAILS
+            -------------------------- */
+
+            revenue.payoutId = transactionId;
+            revenue.paidAmount = amount;
+            revenue.status = status;
+            revenue.paymentPaidDate = new Date();
+
+            await revenue.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Revenue marked as paid successfully";
+            retData.data = revenue;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to mark revenue paid";
+
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // ADMIN SUMMARY REPORT
+    // --------------------------------------------------------
+    getSummaryReport: async (req, res) => {
+
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+
+            const { startDate, endDate } = req.query;
+
+            let match = {};
+
+            // -------------------------
+            // DATE FILTER
+            // -------------------------
+            if (startDate && endDate) {
+
+                const start = new Date(startDate + "T00:00:00.000Z");
+                const end = new Date(endDate + "T23:59:59.999Z");
+
+                match.createdAt = {
+                    $gte: start,
+                    $lte: end
+                };
+            }
+            console.log(match);
+            /* -------------------------
+            TOTAL ORDERS
+            -------------------------- */
+            const totalOrders = await Revenue.countDocuments(match);
+
+            /* -------------------------
+            TOTAL SELLERS
+            -------------------------- */
+            const totalSellers = await Revenue.distinct("sellerId", match);
+
+            /* -------------------------
+            TOTAL BUYERS
+            -------------------------- */
+            const totalBuyers = await Revenue.distinct("userId", match);
+
+            /* -------------------------
+            ADMIN COMMISSION
+            -------------------------- */
+            const adminCommissionData = await Revenue.aggregate([
+                { $match: match },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$adminCommission" }
+                    }
+                }
+            ]);
+
+            const totalAdminCommission =
+                adminCommissionData.length > 0 ? adminCommissionData[0].total : 0;
+
+            /* -------------------------
+            SELLER EARNINGS
+            -------------------------- */
+            const sellerEarningData = await Revenue.aggregate([
+                { $match: match },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$sellerAmount" }
+                    }
+                }
+            ]);
+
+            const totalSellerEarnings =
+                sellerEarningData.length > 0 ? sellerEarningData[0].total : 0;
+
+            /* -------------------------
+            REFERRALS
+            -------------------------- */
+           const totalReferral = await Refferal.countDocuments(match);
+
+            /* -------------------------
+            REFERRAL PAYOUT
+            -------------------------- */
+            const referralPayoutData = await Refferal.aggregate([
+                { $match: match },
+                {
+                    $group: {
+                        _id: null,
+                          total: { $sum: "$commission_amount" }
+                    }
+                }
+            ]);
+
+            const totalReferralPayout =
+                referralPayoutData.length > 0 ? referralPayoutData[0].total : 0;
+
+            /* -------------------------
+            DOCUMENTS
+            -------------------------- */
+
+            let docMatch = {};
+
+            if (startDate && endDate) {
+                docMatch.createdAt = {
+                    $gte: new Date(startDate),
+                    $lte: new Date(endDate)
+                };
+            }
+
+            const totalDocuments = await Document.countDocuments(docMatch);
+
+            const pendingDocuments = await Document.countDocuments({
+                ...docMatch,
+                approvalStatus: "pending"
+            });
+
+            const approvedDocuments = await Document.countDocuments({
+                ...docMatch,
+                approvalStatus: "approved"
+            });
+
+            /* -------------------------
+            FINAL RESPONSE
+            -------------------------- */
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.msg = "Summary report fetched successfully";
+
+            retData.data = {
+                totalOrders,
+                totalSellers: totalSellers.length,
+                totalBuyers: totalBuyers.length,
+                totalAdminCommission,
+                totalSellerEarnings,
+                totalReferral,
+                totalReferralPayout,
+                totalDocuments,
+                pendingDocuments,
+                approvedDocuments
+            };
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.msg = err.message || "Failed to fetch summary report";
+
+            return AppHelpers.Utils.cRes(res, retData);
+        }
+    },
+
+    // --------------------------------------------------------
+    // EXPORT FULL REPORT (CSV)
+    // --------------------------------------------------------
+
+    exportFullReport: async (req, res) => {
+
+        try {
+
+            const { startDate, endDate } = req.query;
+
+            let match = {};
+
+            if (startDate && endDate) {
+                match.createdAt = {
+                    $gte: new Date(startDate),
+                    $lte: new Date(endDate + "T23:59:59.999Z")
+                };
+            }
+
+            /* -------------------------
+            ORDERS LIST
+            -------------------------- */
+
+            const orders = await Revenue.find(match)
+            .populate("userId", "name email")
+            .populate("sellerId", "name email")
+            .lean();
+
+            /* -------------------------
+            SELLERS LIST
+            -------------------------- */
+
+            const sellers = await User.find({ role: "seller" })
+            .select("name email createdAt")
+            .lean();
+
+            /* -------------------------
+            BUYERS LIST
+            -------------------------- */
+
+            const buyers = await User.find({ role: "buyer" })
+            .select("name email createdAt")
+            .lean();
+
+            /* -------------------------
+            REFERRALS LIST
+            -------------------------- */
+
+            const referrals = await Refferal.find(match)
+            .populate("referrerId", "name email")
+            .populate("referredUserId", "name email")
+            .lean();
+
+            /* -------------------------
+            DOCUMENTS LIST
+            -------------------------- */
+
+            const documents = await Document.find(match)
+            .populate("userId", "name email")
+            .lean();
+
+            let csv = "";
+
+            /* =========================
+            ORDERS SECTION
+            ========================= */
+
+            csv += "ORDERS\n";
+            csv += "OrderId,Buyer,Seller,Admin Commission,Seller Amount,Created Date\n";
+
+            orders.forEach(o => {
+                csv += `${o._id},${o.userId?.name || ""},${o.sellerId?.name || ""},${o.adminCommission},${o.sellerAmount},${o.createdAt}\n`;
+            });
+
+            csv += "\n";
+
+            /* =========================
+            SELLERS SECTION
+            ========================= */
+
+            csv += "SELLERS\n";
+            csv += "SellerId,Name,Email,Created Date\n";
+
+            sellers.forEach(s => {
+                csv += `${s._id},${s.name},${s.email},${s.createdAt}\n`;
+            });
+
+            csv += "\n";
+
+            /* =========================
+            BUYERS SECTION
+            ========================= */
+
+            csv += "BUYERS\n";
+            csv += "BuyerId,Name,Email,Created Date\n";
+
+            buyers.forEach(b => {
+                csv += `${b._id},${b.name},${b.email},${b.createdAt}\n`;
+            });
+
+            csv += "\n";
+
+            /* =========================
+            REFERRALS SECTION
+            ========================= */
+
+            csv += "REFERRALS\n";
+            csv += "Referrer,Referred User,Commission Amount,Created Date\n";
+
+            referrals.forEach(r => {
+                csv += `${r.referrerId?.name || ""},${r.referredUserId?.name || ""},${r.commission_amount},${r.createdAt}\n`;
+            });
+
+            csv += "\n";
+
+            /* =========================
+            DOCUMENTS SECTION
+            ========================= */
+
+            csv += "DOCUMENTS\n";
+            csv += "User,Status,Created Date\n";
+
+            documents.forEach(d => {
+                csv += `${d.userId?.name || ""},${d.approvalStatus},${d.createdAt}\n`;
+            });
+
+            res.header("Content-Type", "text/csv");
+            res.attachment("summary-report.csv");
+            res.send(csv);
+
+        } catch (err) {
+
+            res.status(500).json({
+                status: "error",
+                message: err.message
+            });
+
+        }
+
     }
 };
 

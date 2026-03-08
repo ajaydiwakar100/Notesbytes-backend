@@ -19,26 +19,27 @@ const Controller = {
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const { id } = req.params; // 👈 if present → update
       const {
+        id,
         title,
         category,
         author,
         content,
         tags,
         readTime,
-        status
+        status,
+        embed
       } = req.body;
 
       if (!title) {
         retData.status = "error";
         retData.httpCode = 400;
-        retData.msg = "Title is required 1";
+        retData.msg = "Title is required";
         return AppHelpers.Utils.cRes(res, retData);
       }
 
       /* -------------------------------
-        Slug generator
+        Slug Generator
       --------------------------------*/
       const createSlug = (text) =>
         text
@@ -50,30 +51,31 @@ const Controller = {
 
       let slug = createSlug(title);
 
-      // Ensure unique slug (ignore current blog when updating)
+      // ensure unique slug
       let slugQuery = { slug };
       if (id) slugQuery._id = { $ne: id };
 
-      let slugExists = await Blog.findOne(slugQuery);
+      let exists = await Blog.findOne(slugQuery);
       let counter = 1;
 
-      while (slugExists) {
+      while (exists) {
         slug = `${createSlug(title)}-${counter}`;
         slugQuery.slug = slug;
-        slugExists = await Blog.findOne(slugQuery);
+        exists = await Blog.findOne(slugQuery);
         counter++;
       }
 
       /* -------------------------------
-        Image handling (multer)
+        Image Handling
       --------------------------------*/
-      let imagePath;
+      let imagePath = null;
+
       if (req.file) {
         imagePath = `/uploads/admin/blogs/${req.file.filename}`;
       }
 
       /* -------------------------------
-        UPDATE
+        UPDATE BLOG
       --------------------------------*/
       if (id) {
         const blog = await Blog.findById(id);
@@ -93,9 +95,8 @@ const Controller = {
         blog.tags = tags;
         blog.readTime = readTime;
         blog.status = status;
-        
+        blog.embed = embed;
 
-        // update image only if new image uploaded
         if (imagePath) {
           blog.image = imagePath;
         }
@@ -111,7 +112,7 @@ const Controller = {
       }
 
       /* -------------------------------
-        CREATE
+        CREATE BLOG
       --------------------------------*/
       const blog = await Blog.create({
         title,
@@ -119,10 +120,11 @@ const Controller = {
         category,
         author,
         content,
-        image: imagePath || null,
         tags,
         readTime,
-        status
+        status,
+        embed,
+        image: imagePath
       });
 
       retData.status = "success";
@@ -131,6 +133,7 @@ const Controller = {
       retData.data = blog;
 
       return AppHelpers.Utils.cRes(res, retData);
+
     } catch (err) {
       return AppHelpers.Utils.cRes(res, Controller.handleError(res, err));
     }

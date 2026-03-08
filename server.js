@@ -57,7 +57,7 @@ app.use(cookieParser());
    ROUTES
 ----------------------------*/
 app.get("/", (req, res) => {
-  res.json({ message: "Welcome to notebytes application." });
+  res.json({ message: "Welcome to NotesByte application." });
 });
 
 // start crons

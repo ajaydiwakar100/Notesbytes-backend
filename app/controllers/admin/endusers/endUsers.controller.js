@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { User,PurchaseOrder, GlobalSetting, EmailTemplate, Refferal } = require("../../../models/index.js");
+const { User,PurchaseOrder, GlobalSetting, EmailTemplate, Refferal, PaymentDetail } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const AppHelpers = require("../../../helpers/index.js");
 const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
@@ -211,9 +211,20 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
+      const paymentDetails = await PaymentDetail.findOne({ userId: id }).lean();
+
       if (user.profilePicture && !user.profilePicture.includes("http")) {
         user.profilePicture = `${process.env.BASE_URL}/${user.profilePicture}`;
       }
+
+      // Attach payment fields directly
+      user.accountHolderName = paymentDetails?.accountHolderName || "N/A";
+      user.accountHolderPhoneNumber = paymentDetails?.accountHolderPhoneNumber || "N/A";
+      user.accountNumber = paymentDetails?.accountNumber || "N/A";
+      user.ifscCode = paymentDetails?.ifscCode || "N/A";
+      user.consentAccepted = paymentDetails?.consentAccepted ?? "N/A";
+      user.upiId = paymentDetails?.upiId ?? "N/A";
+      user.bankName = paymentDetails?.bankName ?? "N/A";
 
       retData.status = "success";
       retData.code = 200;
@@ -334,6 +345,15 @@ const Controller = {
         retData.code = 401;
         retData.httpCode = 401;
         retData.msg = AppHelpers.ResponseMessages.INVALID_LOGIN;
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Check account status
+      if (user.status !== 1) {
+        retData.status = "error";
+        retData.code = 403;
+        retData.httpCode = 403;
+        retData.msg = "Your account has been deactivated by admin. Please contact support.";
         return AppHelpers.Utils.cRes(res, retData);
       }
 

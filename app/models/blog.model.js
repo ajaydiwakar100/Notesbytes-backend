@@ -32,6 +32,10 @@ const BlogSchema = new mongoose.Schema(
     image: {
       type: String
     },
+    
+    embed: {
+      type: String
+    },
 
     content: {
       type: String, // HTML content

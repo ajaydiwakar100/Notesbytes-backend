@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema(
     consent:{type: String,default: "both"},
     preferredLanguage:{type: String,default: "both"},
     isProfileFill:{type: String,default: "No"},
-    isSellerAccount:{type: String,default: "No"},
+    isSellerAccount:{type: Boolean, default: false},
     razorpayFundAccountId:{type: String,default: null},
     razorpayCustomerId:{type: String,default: null},
     emailVerified: {type: Boolean,default: false},

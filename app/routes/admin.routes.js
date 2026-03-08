@@ -14,7 +14,7 @@ const documentController = require("../controllers/admin/document/document.contr
 const documentValidation = require("../controllers/admin/document/validation");
 const testimonialController = require("../controllers/admin/testimonial/testimonal.controller");
 const cmsController   = require("../controllers/admin/cms/cms.controller");
-const { createEmailTemplate } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
+const { createEmailTemplate, getEmailTemplates } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
 const blogController = require("../controllers/admin/blog/blog.controller");
 
 const validate = require("../middleware/validate");
@@ -80,6 +80,7 @@ module.exports = function(app) {
   
   // email template 
   router.post("/email-template/create", createEmailTemplate);
+  router.get("/email-templates/list", getEmailTemplates);
   
   
   // buyers/sellers
@@ -113,6 +114,11 @@ module.exports = function(app) {
   router.post("/blog/delete", Authenticate, blogController.delete);
   router.get("/blog/view/:id", Authenticate,  blogController.detail);
 
+  router.get("/get-admin-revenue", Authenticate, documentController.getAdminRevenveDetails);
+  router.post("/mark-revenue-paid", Authenticate, documentController.markRevenuePaid);
+  router.get("/get-summary-report", Authenticate, documentController.getSummaryReport);
+  
+  
 
   // (open apis ) 
   router.get("/home/list", cmsController.getHomePage);
@@ -168,11 +174,17 @@ module.exports = function(app) {
   router.post("/end-user/verify-payment", userAuth, documentController.verifyPayment);
   router.get("/end-user/get-revenue", userAuth, documentController.getSellerRevenue);
   router.get("/end-user/get-dashboard", userAuth, documentController.getSellerDashboard);
+  router.post("/end-user/update-seller-status",userAuth,documentController.updateSellerStatus);
+  
 
 
   // Razorpay 
   router.post("/razorpay/create-fund-account",userAuth, documentController.createOrUpdateRazorpayAccount);
+  router.post("/razorpay/save-payment-details",userAuth, documentController.savePaymentDetails);
+  router.get("/razorpay/get-payment-details",userAuth, documentController.getPaymentDetails);
 
+
+  
   // Review and Rating
   router.post("/end-user/review", userAuth, documentController.addOrUpdateReview);
   router.get("/reviews/:productId",documentController.getReviewsByProduct);

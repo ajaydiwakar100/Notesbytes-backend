@@ -50,7 +50,7 @@ exports.sendDynamicTemplateEmail = async ({
 
   // 5️⃣ Send email
   await transporter.sendMail({
-    from: `"NotesBytes" <${process.env.SMTP_USER}>`,
+    from: `"NotesByte" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html,

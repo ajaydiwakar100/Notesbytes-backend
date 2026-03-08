@@ -49,6 +49,7 @@ const createUploader = (folderName) => {
       if (
         file.mimetype === "application/pdf" ||
         file.mimetype === "application/zip" || // ZIP support
+        file.mimetype === "text/html" ||
         file.mimetype === "application/x-zip-compressed" || // Windows ZIP
         file.mimetype.includes("word") ||
         file.mimetype.includes("presentation")

@@ -48,3 +48,31 @@ exports.createEmailTemplate = async (req, res) => {
     return AppHelpers.Utils.cRes(res, retData);
   }
 };
+
+// controllers/emailTemplate.controller.js
+
+exports.getEmailTemplates = async (req, res) => {
+  const retData = AppHelpers.Utils.responseObject();
+
+  try {
+    const templates = await EmailTemplate.find({})
+      .sort({ createdAt: -1 });
+
+    retData.status = "success";
+    retData.code = 200;
+    retData.msg = "Email template list fetched successfully";
+    retData.data = templates;
+
+    return AppHelpers.Utils.cRes(res, retData);
+
+  } catch (error) {
+    console.error("Get Email Templates Error:", error);
+
+    retData.status = "error";
+    retData.code = 500;
+    retData.msg = "Failed to fetch email templates";
+    retData.data = [{ details: error.message }];
+
+    return AppHelpers.Utils.cRes(res, retData);
+  }
+};
