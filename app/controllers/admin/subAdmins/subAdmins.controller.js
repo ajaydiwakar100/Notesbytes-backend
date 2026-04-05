@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const { Admin, Role, Permission, Module } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const { sendTemplateEmail } = require("../../../helpers/email.helper.js");
+const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js")
 const AppHelpers = require("../../../helpers/index.js");
 
 const Controller = {
@@ -67,18 +68,19 @@ const Controller = {
         is_password_reset_required: true
       });
 
-      // Send email with template
-      await sendTemplateEmail({
+
+      // 5️⃣ Send email
+      await sendDynamicTemplateEmail({
         to: email,
-        subject: AppHelpers.ResponseMessages.SUB_ADMIN_TEMPLATE,
-        templateName: "subadmin-welcome",
+        templateKey: "SUB_ADMIN_TEMPLATE",
         variables: {
-          name,
+          name: name,
           email,
           password,
           year: new Date().getFullYear(),
         },
       });
+
 
       // Prepare response
       const result = {
@@ -118,10 +120,9 @@ const Controller = {
 
     try {
       // Fetch all sub-admin users
-      const subAdmins = await Admin.find({ user_type: "subadmin" })
+      const subAdmins = await Admin.find({})
       .sort({ createdAt: -1 })
       .lean();
-
 
 
       // Fetch all roles

@@ -50,7 +50,6 @@ exports.createEmailTemplate = async (req, res) => {
 };
 
 // controllers/emailTemplate.controller.js
-
 exports.getEmailTemplates = async (req, res) => {
   const retData = AppHelpers.Utils.responseObject();
 
@@ -71,6 +70,91 @@ exports.getEmailTemplates = async (req, res) => {
     retData.status = "error";
     retData.code = 500;
     retData.msg = "Failed to fetch email templates";
+    retData.data = [{ details: error.message }];
+
+    return AppHelpers.Utils.cRes(res, retData);
+  }
+};
+
+// --------------------------------------------------------
+// GET SINGLE EMAIL TEMPLATE DETAILS API
+// --------------------------------------------------------
+exports.getEmailTemplateDetails = async (req, res) => {
+  const retData = AppHelpers.Utils.responseObject();
+
+  try {
+    const { id } = req.params;
+
+    const template = await EmailTemplate.findById(id);
+
+    if (!template) {
+      retData.status = "error";
+      retData.code = 404;
+      retData.msg = "Email template not found";
+
+      return AppHelpers.Utils.cRes(res, retData);
+    }
+
+    retData.status = "success";
+    retData.code = 200;
+    retData.msg = "Email template details fetched successfully";
+    retData.data = template;
+
+    return AppHelpers.Utils.cRes(res, retData);
+  } catch (error) {
+    console.error("Get Email Template Details Error:", error);
+
+    retData.status = "error";
+    retData.code = 500;
+    retData.msg = "Failed to fetch email template details";
+    retData.data = [{ details: error.message }];
+
+    return AppHelpers.Utils.cRes(res, retData);
+  }
+};
+
+// --------------------------------------------------------
+// UPDATE EMAIL TEMPLATE API
+// --------------------------------------------------------
+exports.updateEmailTemplate = async (req, res) => {
+  const retData = AppHelpers.Utils.responseObject();
+
+  try {
+    const { id } = req.params;
+    const { key, subject, body, isActive } = req.body;
+
+    const template = await EmailTemplate.findById(id);
+
+    if (!template) {
+      retData.status = "error";
+      retData.code = 404;
+      retData.msg = "Email template not found";
+
+      return AppHelpers.Utils.cRes(res, retData);
+    }
+
+    template.key = key || template.key;
+    template.subject = subject || template.subject;
+    template.body = body || template.body;
+
+    if (typeof isActive !== "undefined") {
+      template.isActive = isActive;
+    }
+
+    await template.save();
+
+    retData.status = "success";
+    retData.code = 200;
+    retData.msg = "Email template updated successfully";
+    retData.data = template;
+
+    return AppHelpers.Utils.cRes(res, retData);
+  } catch (error) {
+    console.error("Update Email Template Error:", error);
+
+    retData.status = "error";
+    retData.code = 500;
+    retData.msg = "Failed to update email template";
     retData.data = [{ details: error.message }];
 
     return AppHelpers.Utils.cRes(res, retData);

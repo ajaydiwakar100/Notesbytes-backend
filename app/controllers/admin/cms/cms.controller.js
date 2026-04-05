@@ -1,7 +1,8 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { Document,User, Testimonial, GlobalSetting } = require("../../../models/index.js");
+const { Document,User, Testimonial, GlobalSetting, ContactUs } = require("../../../models/index.js");
 const AppHelpers = require("../../../helpers/index.js");
+const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js")
 
 const Controller = {
 
@@ -54,6 +55,7 @@ const Controller = {
                 status: 1,
                 approvalStatus: "approved",
                 isFeature: true,
+                isDeleted: false 
             })
             .sort({ createdAt: -1 })
             .limit(limit)
@@ -823,5 +825,142 @@ const Controller = {
         }
     },
     
+    // --------------------------------------------------------
+    // ADD CONTACT API
+    // --------------------------------------------------------
+    addContact: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { name, email, phone, subject, message } = req.body;
+
+            /* ===============================
+            SAVE CONTACT MESSAGE
+            =============================== */
+            const contact = await ContactUs.create({
+                name,
+                email,
+                phone,
+                subject,
+                message,
+            });
+
+            /* ===============================
+            FETCH EMAIL FROM GLOBAL SETTINGS
+            =============================== */
+            const globalSetting = await GlobalSetting.findOne({
+                key: "global_settings_content",
+            }).lean();
+
+            let settings = {};
+
+            if (globalSetting?.value) {
+                settings = JSON.parse(globalSetting.value);
+            }
+
+            const adminEmail = settings.email || settings.email;
+
+            /* ===============================
+            SEND EMAIL TO ADMIN
+            =============================== */
+            if (adminEmail) {
+                await sendDynamicTemplateEmail({
+                    to: adminEmail,
+                    templateKey: "CONTACT_US_TEMPLATE",
+                    variables: {
+                        name,
+                        email,
+                        phone,
+                        subject,
+                        message,
+                        year: new Date().getFullYear(),
+                    },
+                });
+            }
+
+            retData.status = "success";
+            retData.code = 201;
+            retData.httpCode = 201;
+            retData.msg = "Contact message submitted successfully";
+            retData.data = contact;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in addContact");
+        }
+    },
+    // --------------------------------------------------------
+    // LIST CONTACT API
+    // --------------------------------------------------------    
+    listContact: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const contacts = await ContactUs.find()
+            .sort({ createdAt: -1 })
+            .lean();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Contact list fetched successfully";
+            retData.data = contacts;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(res, err, "ERROR in listContact");
+        }
+    },
+
+    // --------------------------------------------------------
+    // UPDATE CONTACT STATUS API
+    // --------------------------------------------------------
+    updateContactStatus: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { id } = req.params;
+            const { isResolved } = req.body;
+
+            // Validate input
+            if (typeof isResolved !== "boolean") {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Invalid resolved status";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const contact = await ContactUs.findById(id);
+
+            if (!contact) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Contact not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            contact.isResolved = isResolved;
+            await contact.save();
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = `Contact marked as ${
+                isResolved ? "resolved" : "pending"
+            } successfully`;
+            retData.data = contact;
+
+            return AppHelpers.Utils.cRes(res, retData);
+        } catch (err) {
+            return Controller.handleError(
+                res,
+                err,
+                "ERROR in updateContactStatus"
+            );
+        }
+    },
 };
 module.exports = Controller;

@@ -14,7 +14,7 @@ const documentController = require("../controllers/admin/document/document.contr
 const documentValidation = require("../controllers/admin/document/validation");
 const testimonialController = require("../controllers/admin/testimonial/testimonal.controller");
 const cmsController   = require("../controllers/admin/cms/cms.controller");
-const { createEmailTemplate, getEmailTemplates } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
+const { createEmailTemplate, getEmailTemplates, getEmailTemplateDetails, updateEmailTemplate } = require("../controllers/admin/emailTemplates/emailTemplate.controller");
 const blogController = require("../controllers/admin/blog/blog.controller");
 
 const validate = require("../middleware/validate");
@@ -34,7 +34,6 @@ module.exports = function(app) {
   router.post("/verify-otp", validate(userSchemas.verifyOtp), AuthController.verifyOtp);
   router.post("/forgot-password", validate(userSchemas.forgotPassword), AuthController.forgetPassword);
   router.post("/reset-password", validate(userSchemas.resetPassword), AuthController.resetPassword);
-
 
 
   // After Login
@@ -81,7 +80,8 @@ module.exports = function(app) {
   // email template 
   router.post("/email-template/create", createEmailTemplate);
   router.get("/email-templates/list", getEmailTemplates);
-  
+  router.get("/email-template/details/:id", getEmailTemplateDetails);
+  router.put("/email-template/update/:id", updateEmailTemplate);
   
   // buyers/sellers
   router.get("/end-users/list",  Authenticate, endUserController.getList);
@@ -96,9 +96,12 @@ module.exports = function(app) {
   // Document 
   router.get("/document/list",  Authenticate, documentController.getList);
   router.put("/document/change-status", Authenticate,  documentController.updateStatus);
+  router.put("/document/change-is-feature-status", Authenticate,  documentController.updateIsFeatureStatus);
   router.get("/document/view/:id", Authenticate,  documentController.details);
   router.put("/document/approved-reject-status", Authenticate,  documentController.updateApprovalStatus);
   router.post("/document/delete", Authenticate, documentController.delete);
+  router.post("/document/make-draft-status", Authenticate, documentController.toggleDraftStatus);
+  
 
   // Testimonial
   router.post("/testimonial/create", Authenticate,testimonialController.create);
@@ -118,7 +121,6 @@ module.exports = function(app) {
   router.post("/mark-revenue-paid", Authenticate, documentController.markRevenuePaid);
   router.get("/get-summary-report", Authenticate, documentController.getSummaryReport);
   
-  
 
   // (open apis ) 
   router.get("/home/list", cmsController.getHomePage);
@@ -130,6 +132,9 @@ module.exports = function(app) {
   router.get("/settings/list",  getAllSettingsController.getSettings);
   router.get("/document/getDetail/:id", documentController.detailsById);
   router.get("/about-us/list", cmsController.getAboutUsPage);
+  router.post("/contact-us/create", cmsController.addContact);
+  router.get("/contact-us/get", cmsController.listContact);
+  router.put("/contact-us/update/:id",cmsController.updateContactStatus);
   router.get("/sell-notes/list", cmsController.getSellNotesPage);
   router.get("/terms/list", cmsController.getTermsPage);
   router.get("/privacy-policy/list", cmsController.getPrivacy);
@@ -138,9 +143,6 @@ module.exports = function(app) {
   router.get("/get-all-blog-list",blogController.getAllPublishBlog);
   router.get("/get-blog-detail/:slug",blogController.getPublishedBlogDetail);
   
-
-
-
   // auth api
   router.post("/end-user/register",validate(endUserSchemas.create),endUserController.create);
   router.post("/end-user/login",validate(endUserSchemas.login),endUserController.login);
@@ -158,7 +160,9 @@ module.exports = function(app) {
   router.delete("/end-user/document/delete/:slug", userAuth, documentController.deleteDocumentBySlug);
   router.post("/end-user/document/publish/:slug",userAuth,documentController.updatePublishStatus);
   router.get("/end-user/document/get-purchase-notes", userAuth, documentController.getPurchasedNotes);
-  
+  router.put("/end-user/document/delete-document", userAuth,documentController.deleteDocument);
+
+
   // wish list api
   router.get("/end-user/wishlist", userAuth, documentController.getWishlist);
   router.post("/end-user/wishlist/add", userAuth, documentController.addToWishlist);

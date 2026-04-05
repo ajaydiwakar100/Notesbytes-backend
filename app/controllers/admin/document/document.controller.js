@@ -192,7 +192,8 @@ const Controller = {
                 approvalStatus: approvalStatus ?? "pending",
                 status: status ?? 1,
                 publishStatus: publishStatus ?? 0,
-                isFeature: isFeature ?? false,
+                //isFeature: isFeature ?? false,
+                isFeature: false,
                 noOfDownloads: 0,
                 rating: 0,
                 reviewsCount: 0,
@@ -237,6 +238,15 @@ const Controller = {
                 filter.uploadedBy = userId;
             }
 
+            // only publishStatus can shown 
+            filter.publishStatus = 1;
+            if (Document.schema.path("isDeleted")) {
+                filter.$or = [
+                    { isDeleted: false },
+                    { isDeleted: { $exists: false } }
+                ];
+            }
+            
             // ---------------------------------------------
             // FETCH DATA
             // ---------------------------------------------
@@ -383,6 +393,71 @@ const Controller = {
 
         } catch (err) {
             return Controller.handleError(res, err, "ERROR in document updateStatus");
+        }
+    },
+
+    // --------------------------------------------------------
+    // UPDATE DOCUMENT FEATURE STATUS ONLY
+    // --------------------------------------------------------
+    updateIsFeatureStatus: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { id, isFeature } = req.body;
+
+            // Validate ID
+            if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            retData.status = "error";
+            retData.code = 400;
+            retData.httpCode = 400;
+            retData.msg = AppHelpers.ResponseMessages.INVALID_ID;
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Validate isFeature (true/false)
+            if (![true, false].includes(isFeature)) {
+            retData.status = "error";
+            retData.code = 400;
+            retData.httpCode = 400;
+            retData.msg = "Invalid feature status value";
+            return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Update feature status
+            const updatedDocument = await Document.findByIdAndUpdate(
+            id,
+            {
+                isFeature,
+                updatedAt: new Date(),
+            },
+            { new: true }
+            );
+
+            if (!updatedDocument) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Success response
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = `Document ${
+                isFeature ? "marked as featured" : "removed from featured"
+            } successfully`;
+            retData.data = updatedDocument;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            return Controller.handleError(
+            res,
+            err,
+            "ERROR in updateIsFeatureStatus"
+            );
         }
     },
 
@@ -548,11 +623,11 @@ const Controller = {
     },
 
     // --------------------------------------------------------
-    // DOCUMENT DETAILS BY SLUG WITH FULL FILE PATH + UPLOADER INFO
+    // DOCUMENT DETAILS BY SLUG WITH REVIEWS + DOWNLOAD COUNT
     // --------------------------------------------------------
     detailsBySlug: async (req, res) => {
         const retData = AppHelpers.Utils.responseObject();
-        
+
         try {
             const { slug } = req.params;
 
@@ -564,10 +639,102 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
-            // Fetch document by slug
-            const document = await Document.findOne({ slug })
-                .populate("uploadedBy", "name email phone userType")
-                .lean();
+            const documents = await Document.aggregate([
+                /* ==============================
+                MATCH DOCUMENT
+                ============================== */
+                {
+                    $match: { slug }
+                },
+
+                /* ==============================
+                REVIEWS LOOKUP
+                ============================== */
+                {
+                    $lookup: {
+                        from: "reviews",
+                        localField: "_id",
+                        foreignField: "productId",
+                        as: "reviews"
+                    }
+                },
+
+                /* ==============================
+                DOWNLOAD COUNT LOOKUP
+                (ONLY PAID ORDERS)
+                ============================== */
+                {
+                    $lookup: {
+                        from: "orders", // change if collection name differs
+                        let: { documentId: "$_id" },
+                        pipeline: [
+                            {
+                                $match: {
+                                    status: "PAID"
+                                }
+                            },
+                            {
+                                $match: {
+                                    $expr: {
+                                        $in: [
+                                            "$$documentId",
+                                            "$items.productId"
+                                        ]
+                                    }
+                                }
+                            }
+                        ],
+                        as: "downloads"
+                    }
+                },
+
+                /* ==============================
+                UPLOADER INFO
+                ============================== */
+                {
+                    $lookup: {
+                        from: "users", // change if your actual collection name differs
+                        localField: "uploadedBy",
+                        foreignField: "_id",
+                        as: "uploadedBy"
+                    }
+                },
+
+                {
+                    $unwind: {
+                        path: "$uploadedBy",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+
+                /* ==============================
+                ADD REVIEW + DOWNLOAD FIELDS
+                ============================== */
+                {
+                    $addFields: {
+                        reviewsCount: {
+                            $size: "$reviews"
+                        },
+
+                        
+
+                        averageRating: {
+                            $cond: {
+                                if: { $gt: [{ $size: "$reviews" }, 0] },
+                                then: {
+                                    $round: [
+                                        { $avg: "$reviews.rating" },
+                                        1
+                                    ]
+                                },
+                                else: 0
+                            }
+                        }
+                    }
+                }
+            ]);
+
+            const document = documents[0];
 
             if (!document) {
                 retData.status = "error";
@@ -577,20 +744,36 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
-            // Add full file path
-            if (document.filePath && !document.filePath.includes("http") && req.user) {
+            /* ==============================
+            FULL FILE PATH
+            ============================== */
+            if (
+                document.filePath &&
+                !document.filePath.includes("http") &&
+                req.user
+            ) {
                 document.filePath = `${process.env.BASE_URL}/${document.filePath}`;
-            }else{
+            } else {
                 document.filePath = null;
             }
 
-            if (document.docImage && !document.docImage.includes("http")) {
+            if (
+                document.docImage &&
+                !document.docImage.includes("http")
+            ) {
                 document.docImage = `${process.env.BASE_URL}/${document.docImage}`;
             }
 
-            if (document.sampleFile && !document.sampleFile.includes("http")) {
+            if (
+                document.sampleFile &&
+                !document.sampleFile.includes("http")
+            ) {
                 document.sampleFile = `${process.env.BASE_URL}/${document.sampleFile}`;
             }
+
+            /* ==============================
+            RESPONSE
+            ============================== */
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
@@ -600,7 +783,11 @@ const Controller = {
             return AppHelpers.Utils.cRes(res, retData);
 
         } catch (err) {
-            return Controller.handleError(res, err, "ERROR in document details by slug");
+            return Controller.handleError(
+                res,
+                err,
+                "ERROR in document details by slug"
+            );
         }
     },
 
@@ -612,13 +799,21 @@ const Controller = {
         const retData = AppHelpers.Utils.responseObject();
 
         try {
-            const { subjects, exams, price, rating, search, sort, callType } = req.query;
+            const {
+                subjects,
+                exams,
+                price,
+                rating,
+                search,
+                sort,
+                callType
+            } = req.query;
 
             let andConditions = [];
             let sortQuery = { createdAt: -1 }; // default newest
 
             /* ==============================
-            SUBJECT FILTER (Ignore Case)
+            SUBJECT FILTER
             ============================== */
             if (subjects) {
                 const subjectArray = subjects.split(",");
@@ -633,7 +828,7 @@ const Controller = {
             }
 
             /* ==============================
-            EXAM FILTER (Ignore Case)
+            EXAM FILTER
             ============================== */
             if (exams) {
                 const examArray = exams.split(",");
@@ -652,29 +847,26 @@ const Controller = {
             ============================== */
             if (price) {
                 if (price === "under200") {
-                    andConditions.push({ price: { $lt: 200 } });
+                    andConditions.push({
+                        price: { $lt: 200 }
+                    });
                 }
 
                 if (price === "200-400") {
-                    andConditions.push({ price: { $gte: 200, $lte: 400 } });
+                    andConditions.push({
+                        price: { $gte: 200, $lte: 400 }
+                    });
                 }
 
                 if (price === "above400") {
-                    andConditions.push({ price: { $gt: 400 } });
+                    andConditions.push({
+                        price: { $gt: 400 }
+                    });
                 }
             }
 
             /* ==============================
-            RATING FILTER
-            ============================== */
-            if (rating) {
-                andConditions.push({
-                    rating: { $gte: Number(rating) }
-                });
-            }
-
-            /* ==============================
-            SEARCH (Ignore Case)
+            SEARCH FILTER
             ============================== */
             if (search && search.trim() !== "") {
                 const searchValue = search.trim();
@@ -689,15 +881,18 @@ const Controller = {
                 });
             }
 
-
             /* ==============================
-            ONLY APPROVED DOCUMENTS
+            ONLY ACTIVE + APPROVED
             ============================== */
-            //if(callType == 'api'){
-                andConditions.push({ approvalStatus: "approved" });
-                andConditions.push({ status: 1 });
-            //}
-            
+            andConditions.push({ approvalStatus: "approved" });
+            andConditions.push({ status: 1 });
+
+            andConditions.push({
+                $or: [
+                    { isDeleted: false },
+                    { isDeleted: { $exists: false } }
+                ]
+            });
 
             const filters =
                 andConditions.length > 0
@@ -707,28 +902,87 @@ const Controller = {
             /* ==============================
             SORTING
             ============================== */
-            if (sort === "price-low") sortQuery = { price: 1 };
-            if (sort === "price-high") sortQuery = { price: -1 };
-            if (sort === "rating") sortQuery = { rating: -1 };
-            if (sort === "newest") sortQuery = { createdAt: -1 };
+            if (sort === "price-low") {
+                sortQuery = { price: 1 };
+            }
+
+            if (sort === "price-high") {
+                sortQuery = { price: -1 };
+            }
+
+            if (sort === "newest") {
+                sortQuery = { createdAt: -1 };
+            }
 
             /* ==============================
-            FETCH DOCUMENTS
+            FETCH DOCUMENTS + REVIEWS
             ============================== */
-            const documents = await Document.find(filters)
-                .populate("uploadedBy", "name email")
-                .sort(sortQuery)
-                .lean();
+            let documents = await Document.aggregate([
+                {
+                    $match: filters
+                },
+
+                /* JOIN REVIEWS */
+                {
+                    $lookup: {
+                        from: "reviews",
+                        localField: "_id",
+                        foreignField: "productId",
+                        as: "reviews"
+                    }
+                },
+
+                /* ADD REVIEW COUNT + AVG RATING */
+                {
+                    $addFields: {
+                        reviewsCount: {
+                            $size: "$reviews"
+                        },
+                        averageRating: {
+                            $cond: {
+                                if: { $gt: [{ $size: "$reviews" }, 0] },
+                                then: {
+                                    $round: [{ $avg: "$reviews.rating" }, 1]
+                                },
+                                else: 0
+                            }
+                        }
+                    }
+                },
+
+                /* FILTER BY RATING */
+                ...(rating
+                    ? [
+                        {
+                            $match: {
+                                averageRating: {
+                                    $gte: Number(rating)
+                                }
+                            }
+                        }
+                    ]
+                    : []),
+
+                /* SORT */
+                {
+                    $sort:
+                        sort === "rating"
+                            ? { averageRating: -1 }
+                            : sortQuery
+                }
+            ]);
 
             /* ==============================
-            FIX IMAGE URL
+            IMAGE URL FIX
             ============================== */
             const baseUrl = process.env.BASE_URL;
 
-            documents.forEach(doc => {
+            documents = documents.map(doc => {
                 if (doc.docImage && !doc.docImage.startsWith("http")) {
                     doc.docImage = `${baseUrl}/${doc.docImage}`;
                 }
+
+                return doc;
             });
 
             /* ==============================
@@ -743,7 +997,11 @@ const Controller = {
             return AppHelpers.Utils.cRes(res, retData);
 
         } catch (err) {
-            return Controller.handleError(res, err, "ERROR in document list");
+            return Controller.handleError(
+                res,
+                err,
+                "ERROR in document list"
+            );
         }
     },
 
@@ -881,11 +1139,17 @@ const Controller = {
             if (sort === "newest") sortQuery = { createdAt: -1 };
 
             // Fetch documents
-            //filters.approvalStatus = "approved";
+            if (Document.schema.path("isDeleted")) {
+                filters.$or = [
+                    { isDeleted: false },
+                    { isDeleted: { $exists: false } }
+                ];
+            }
+
             const documents = await Document.find(filters)
-                .populate("uploadedBy", "name email")
-                .sort(sortQuery)
-                .lean();
+            .populate("uploadedBy", "name email")
+            .sort(sortQuery)
+            .lean();
 
             // Add full file path
             const fullUrl = (file) => file && !file.includes("http") ? `${process.env.BASE_URL}/${file}` : file;
@@ -1732,6 +1996,27 @@ const Controller = {
                 return AppHelpers.Utils.cRes(res, retData);
             }
 
+            /* ----------------------------------------------------
+            UPDATE DOCUMENT DOWNLOAD COUNT
+            ---------------------------------------------------- */
+            
+            if (purchaseOrder?.items?.length > 0) {
+                const bulkUpdates = purchaseOrder.items.map((item) => ({
+                    updateOne: {
+                        filter: {
+                            _id: item.productId?._id || item.productId
+                        },
+                        update: {
+                            $inc: {
+                                noOfDownloads: item.quantity || 1
+                            }
+                        }
+                    }
+                }));
+
+                await Document.bulkWrite(bulkUpdates);
+            }
+            
             /* ----------------------------------------------------
                 REFERRAL LOGIC (FIRST PURCHASE ONLY)
             ---------------------------------------------------- */
@@ -2909,7 +3194,6 @@ const Controller = {
     // --------------------------------------------------------
     // EXPORT FULL REPORT (CSV)
     // --------------------------------------------------------
-
     exportFullReport: async (req, res) => {
 
         try {
@@ -3045,7 +3329,121 @@ const Controller = {
 
         }
 
-    }
+    },
+
+    // --------------------------------------------------------
+    // SOFT DELETE DOCUMENT
+    // --------------------------------------------------------
+    deleteDocument: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { id } = req.body;
+
+            // Validate ID
+            if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = AppHelpers.ResponseMessages.INVALID_ID;
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            // Soft delete
+            const deletedDocument = await Document.findByIdAndUpdate(
+                id,
+                {
+                    isDeleted: true,
+                    deletedAt: new Date(),
+                    updatedAt: new Date(),
+                },
+                { new: true }
+            );
+
+            if (!deletedDocument) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Document deleted successfully";
+            retData.data = deletedDocument;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            return Controller.handleError(
+                res,
+                err,
+                "ERROR in deleteDocument"
+            );
+        }
+    },
+
+
+    // --------------------------------------------------------
+    // DRAFT TOGGLE
+    // --------------------------------------------------------
+    toggleDraftStatus: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+            const { id, publishStatus } = req.body;
+
+            // Validate ID
+            if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = AppHelpers.ResponseMessages.INVALID_ID;
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            const updatedDocument = await Document.findByIdAndUpdate(
+                id,
+                {
+                    publishStatus,
+                    updatedAt: new Date(),
+                },
+                { new: true }
+            );
+
+            if (!updatedDocument) {
+                retData.status = "error";
+                retData.code = 404;
+                retData.httpCode = 404;
+                retData.msg = "Document not found";
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = publishStatus
+                ? "Document published successfully"
+                : "Document moved to draft successfully";
+
+            retData.data = updatedDocument;
+
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (err) {
+            return Controller.handleError(
+                res,
+                err,
+                "ERROR in toggleDraftStatus"
+            );
+        }
+    },
 };
 
 module.exports = Controller;

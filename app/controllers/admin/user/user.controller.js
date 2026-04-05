@@ -63,9 +63,10 @@ const Controller = {
   login: async function (req, res) {
     const retData = AppHelpers.Utils.responseObject();
     const { email, password } = req.body;
-    console.log(email);
+   
     try {
       const admin = await Admin.findOne({ email });
+
       if (!admin) {
         retData.status = "error";
         retData.code = 401;
@@ -73,6 +74,12 @@ const Controller = {
         return AppHelpers.Utils.cRes(res, retData);
       }
 
+      if (admin.status !== 1) {
+        retData.status = "error";
+        retData.code = 403;
+        retData.msg = "Your account is inactive. Please contact admin.";
+        return AppHelpers.Utils.cRes(res, retData);
+      }
       const isPasswordValid = await bcrypt.compare(password, admin.password);
       if (!isPasswordValid) {
         retData.status = "error";
@@ -82,16 +89,38 @@ const Controller = {
       }
 
       //const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const otpCode = 123456;
-      const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+      // const otpCode = 123456;
+      // const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-      await Admin.findByIdAndUpdate(admin._id, {
-        otp_code: otpCode,
-        otp_expires_at: otpExpiresAt,
+      // await Admin.findByIdAndUpdate(admin._id, {
+      //   otp_code: otpCode,
+      //   otp_expires_at: otpExpiresAt,
+      // });
+
+      // retData.status = "success";
+      // retData.msg = AppHelpers.ResponseMessages.CODE_SEND_EMAIL;
+      const updatedAdmin = await Admin.findByIdAndUpdate(
+        admin._id,
+        {
+          otp_code: null,
+          otp_expires_at: null,
+          $inc: { token_version: 1 },
+        },
+        { new: true }
+      );
+      const token = await AppHelpers.GenJWTToken({
+        userType: "admin",
+        id: admin._id,
+        tokenVersion: updatedAdmin.token_version,
       });
 
+      const profileData = await userHelper.getAdminProfileData(admin._id);
+      profileData.auth_token = token;
+
       retData.status = "success";
-      retData.msg = AppHelpers.ResponseMessages.CODE_SEND_EMAIL;
+      retData.code = 200;
+      retData.msg = AppHelpers.ResponseMessages.LOGIN_SUCCESS;
+      retData.data = profileData;
       return AppHelpers.Utils.cRes(res, retData);
     } catch (err) {
       return Controller.handleError(res, err, "ERROR in login");
@@ -349,7 +378,7 @@ const Controller = {
     const retData = AppHelpers.Utils.responseObject();
 
     try {
-      const adminId = req.user.id;
+      const adminId = req.user._id || req.user.id;
       const admin = await Admin.findById(adminId);
 
       if (!admin) {

@@ -18,4 +18,5 @@ module.exports = {
   Blog: require('./blog.model'),
   Refferal: require('./referal.model'),
   PaymentDetail: require('./paymentDetails.model'),
+  ContactUs: require('./contact.model'),
 };  
