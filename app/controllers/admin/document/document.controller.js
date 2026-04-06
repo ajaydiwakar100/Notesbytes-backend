@@ -222,7 +222,6 @@ const Controller = {
     // --------------------------------------------------------
     getList: async (req, res) => {
         const retData = AppHelpers.Utils.responseObject();
-
         try {
             let { userId, page = 1, limit = 10 } = req.query;
 
@@ -255,8 +254,6 @@ const Controller = {
             const documents = await Document.find(filter)
                 .populate("uploadedBy", "name email")
                 .sort({ createdAt: -1 })
-                .skip((page - 1) * limit)
-                .limit(limit)
                 .lean();
 
             // Attach URL with domain
