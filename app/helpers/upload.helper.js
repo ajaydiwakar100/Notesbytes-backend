@@ -52,6 +52,11 @@ const createUploader = (folderName) => {
         file.mimetype === "text/html" ||
         file.mimetype === "application/x-zip-compressed" || // Windows ZIP
         file.mimetype === "application/x-zip-compressed" ||
+
+         // RAR support
+        file.mimetype === "application/vnd.rar" ||
+        file.mimetype === "application/x-rar-compressed" ||
+        file.mimetype === "application/octet-stream" ||
         file.mimetype.includes("word") ||
         file.mimetype.includes("presentation")
       ) {
