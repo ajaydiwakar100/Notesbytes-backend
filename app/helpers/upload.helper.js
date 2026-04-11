@@ -51,12 +51,13 @@ const createUploader = (folderName) => {
         file.mimetype === "application/zip" || // ZIP support
         file.mimetype === "text/html" ||
         file.mimetype === "application/x-zip-compressed" || // Windows ZIP
+        file.mimetype === "application/x-zip-compressed" ||
         file.mimetype.includes("word") ||
         file.mimetype.includes("presentation")
       ) {
         return cb(null, true);
       }
-      return cb(new Error("Only PDF, DOC, DOCX, PPT files are allowed"));
+      return cb(new Error("Only PDF, DOC, DOCX, PPT, rar files are allowed"));
     }
 
     // THUMBNAIL IMAGE
