@@ -525,11 +525,12 @@ const Controller = {
       }).lean();
 
       const processingFee = (revenueData || []).reduce(
-        (sum, item) => sum + Number(item.adminCommission || 0),
+        (sum, item) =>
+          sum + Number(item.adminCommission || 0),
         0
       );
 
-      // ================= TOTALS =================
+      // ================= TOTAL =================
       const subtotal = (order.items || []).reduce(
         (sum, item) =>
           sum +
@@ -538,9 +539,10 @@ const Controller = {
         0
       );
 
-      const totalAmount = subtotal + processingFee;
+      const totalAmount =
+        subtotal + processingFee;
 
-      // ================= RESPONSE =================
+      // ================= PDF =================
       res.setHeader(
         "Content-Disposition",
         `attachment; filename=invoice_${order._id}.pdf`
@@ -551,152 +553,279 @@ const Controller = {
         "application/pdf"
       );
 
-      // ================= PDF =================
       const doc = new PDFDocument({
         size: "A4",
-        margin: 35,
+        margin: 40,
       });
 
       doc.pipe(res);
-
-      doc.on("error", (err) => {
-        console.error("PDF Error:", err);
-      });
 
       const normalFont = "Helvetica";
       const boldFont = "Helvetica-Bold";
 
       // ================= HEADER =================
+
+      doc
+        .rect(40, 40, 515, 70)
+        .stroke();
+
       doc
         .font(boldFont)
-        .fontSize(18)
-        .text("INVOICE", {
-          align: "center",
-        });
-
-      doc.moveDown(0.5);
-
-      doc
-        .font(normalFont)
-        .fontSize(9)
-        .text(`Invoice ID: ${order._id}`)
+        .fontSize(20)
         .text(
-          `Order ID: ${order.razorpayOrderId || "-"}`
-        )
-        .text(
-          `Date: ${new Date(
-            order.createdAt
-          ).toLocaleDateString()}`
-        );
-
-      doc.moveDown();
-
-      // ================= CUSTOMER =================
-      doc
-        .font(boldFont)
-        .fontSize(11)
-        .text("Billed To");
-
-      doc
-        .font(normalFont)
-        .fontSize(9)
-        .text(order.userId?.name || "-")
-        .text(order.userId?.email || "-")
-        .text(order.userId?.phone || "-");
-
-      doc.moveDown();
-
-      // ================= ITEMS =================
-      let y = doc.y;
-
-      doc
-        .font(boldFont)
-        .text("Item", 40, y)
-        .text("Qty", 300, y)
-        .text("Price", 380, y)
-        .text("Total", 470, y);
-
-      y += 20;
-
-      doc.font(normalFont);
-
-      (order.items || []).forEach((item) => {
-        const itemTotal =
-          Number(item.price || 0) *
-          Number(item.quantity || 0);
-
-        doc.text(
-          String(item.title || "-"),
-          40,
-          y,
+          "PURCHASE INVOICE",
+          0,
+          60,
           {
-            width: 220,
+            align: "center",
           }
         );
 
-        doc.text(
-          String(item.quantity || 0),
-          300,
-          y
-        );
-
-        doc.text(
-          `Rs. ${item.price}`,
-          380,
-          y
-        );
-
-        doc.text(
-          `Rs. ${itemTotal}`,
-          470,
-          y
-        );
-
-        y += 30;
-      });
-
-      y += 20;
-
-      // ================= TOTAL =================
       doc
         .font(normalFont)
+        .fontSize(9)
         .text(
-          `Subtotal: Rs. ${subtotal}`,
-          350,
-          y
+          `Invoice ID : ${order._id}`,
+          50,
+          90
         );
 
-      y += 20;
-
       doc.text(
-        `Processing Fee: Rs. ${processingFee}`,
-        350,
-        y
+        `Date : ${new Date(
+          order.createdAt
+        ).toLocaleDateString()}`,
+        400,
+        90
       );
 
+      // ================= CUSTOMER =================
+
+      let y = 140;
+
+      doc
+        .rect(40, y, 515, 80)
+        .stroke();
+
+      doc
+        .font(boldFont)
+        .fontSize(11)
+        .text(
+          "Billed To",
+          50,
+          y + 10
+        );
+
+      doc
+        .font(normalFont)
+        .fontSize(10)
+        .text(
+          order.userId?.name || "-",
+          50,
+          y + 30
+        )
+        .text(
+          order.userId?.email || "-",
+          50,
+          y + 45
+        )
+        .text(
+          order.userId?.phone || "-",
+          50,
+          y + 60
+        );
+
+      // ================= TABLE =================
+
+      y += 110;
+
+      const tableTop = y;
+      const rowHeight = 30;
+
+      // Header row
+      doc.rect(40, tableTop, 515, rowHeight).stroke();
+
+      doc
+        .font(boldFont)
+        .fontSize(10)
+        .text("Item", 50, tableTop + 10)
+        .text("Qty", 300, tableTop + 10)
+        .text("Price", 370, tableTop + 10)
+        .text("Total", 470, tableTop + 10);
+
+      // Vertical lines
+      doc.moveTo(280, tableTop)
+        .lineTo(
+          280,
+          tableTop + rowHeight
+        )
+        .stroke();
+
+      doc.moveTo(350, tableTop)
+        .lineTo(
+          350,
+          tableTop + rowHeight
+        )
+        .stroke();
+
+      doc.moveTo(450, tableTop)
+        .lineTo(
+          450,
+          tableTop + rowHeight
+        )
+        .stroke();
+
+      y += rowHeight;
+
+      // ================= ITEMS =================
+
+      (order.items || []).forEach(
+        (item) => {
+          const total =
+            Number(item.price || 0) *
+            Number(item.quantity || 0);
+
+          doc
+            .rect(
+              40,
+              y,
+              515,
+              rowHeight
+            )
+            .stroke();
+
+          doc
+            .font(normalFont)
+            .fontSize(9)
+            .text(
+              item.title || "-",
+              50,
+              y + 10,
+              {
+                width: 220,
+              }
+            );
+
+          doc.text(
+            item.quantity.toString(),
+            300,
+            y + 10
+          );
+
+          doc.text(
+            `Rs ${item.price}`,
+            370,
+            y + 10
+          );
+
+          doc.text(
+            `Rs ${total}`,
+            470,
+            y + 10
+          );
+
+          doc.moveTo(280, y)
+            .lineTo(
+              280,
+              y + rowHeight
+            )
+            .stroke();
+
+          doc.moveTo(350, y)
+            .lineTo(
+              350,
+              y + rowHeight
+            )
+            .stroke();
+
+          doc.moveTo(450, y)
+            .lineTo(
+              450,
+              y + rowHeight
+            )
+            .stroke();
+
+          y += rowHeight;
+        }
+      );
+
+      // ================= TOTALS =================
+
       y += 20;
+
+      doc
+        .rect(330, y, 225, 90)
+        .stroke();
+
+      doc
+        .font(normalFont)
+        .fontSize(10)
+        .text(
+          `Subtotal : Rs ${subtotal}`,
+          350,
+          y + 15
+        );
+
+      doc.text(
+        `Processing Fee : Rs ${processingFee}`,
+        350,
+        y + 35
+      );
 
       doc
         .font(boldFont)
         .text(
-          `Grand Total: Rs. ${totalAmount}`,
+          `Grand Total : Rs ${totalAmount}`,
           350,
-          y
+          y + 60
         );
 
-      // ================= FOOTER =================
-      const pageHeight = doc.page.height;
+      // ================= LEGAL NOTE =================
+
+      const footerY = 720;
+
+      doc.moveTo(
+        40,
+        footerY - 15
+      )
+        .lineTo(
+          555,
+          footerY - 15
+        )
+        .stroke();
 
       doc
-        .font(normalFont)
+        .font("Helvetica")
         .fontSize(8)
         .text(
           "This is a system-generated invoice and does not qualify as a legal tax invoice.",
           50,
-          pageHeight - 50,
+          footerY,
           {
-            align: "center",
             width: 500,
+            align: "center",
+          }
+        );
+
+      doc.text(
+        "No GST/VAT has been charged unless explicitly mentioned.",
+        50,
+        footerY + 12,
+        {
+          width: 500,
+          align: "center",
+        }
+      );
+
+      doc
+        .font(boldFont)
+        .fontSize(11)
+        .text(
+          "Thank you for your purchase!",
+          50,
+          footerY + 40,
+          {
+            width: 500,
+            align: "center",
           }
         );
 
@@ -704,7 +833,7 @@ const Controller = {
 
     } catch (err) {
       console.error(
-        "Invoice error:",
+        "Invoice Error:",
         err
       );
 
