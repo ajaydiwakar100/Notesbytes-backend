@@ -1,10 +1,12 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const { User,PurchaseOrder, GlobalSetting, EmailTemplate, Refferal, PaymentDetail } = require("../../../models/index.js");
+const { User,PurchaseOrder, GlobalSetting, EmailTemplate, Refferal, PaymentDetail,Revenue } = require("../../../models/index.js");
 const passwordHelper = require("../../../helpers/password.helper");
 const AppHelpers = require("../../../helpers/index.js");
 const generateUniqueReferralCode = require("../../../helpers/referralCode.helper.js");
 const PDFDocument = require("pdfkit");
+const path = require("path");
+const fs = require("fs");
 const { sendEmail } = require("../../../helpers/email.helper.js");
 const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js");
 const crypto = require("crypto");
@@ -479,10 +481,13 @@ const Controller = {
         condition.userId = userId;
       }
 
-      const orders = await PurchaseOrder.find(condition)
-        .populate("userId", "name email")
-        .sort({ createdAt: -1 })
-        .lean();
+      const orders = await PurchaseOrder.find({
+      ...condition,
+      status: "PAID",
+    })
+      .populate("userId", "name email")
+      .sort({ _id: -1 })
+      .lean();
 
       retData.status = "success";
       retData.data = orders;
@@ -509,133 +514,243 @@ const Controller = {
         .lean();
 
       if (!order) {
-        return res.status(404).json({ status: "error", msg: "Order not found" });
+        return res.status(404).json({
+          status: "error",
+          msg: "Order not found",
+        });
       }
 
-      // Fetch platform fee / processing fee from GlobalSetting
-      const settings = await GlobalSetting.findOne({ key: "plateform_fee" }).lean();
-      console.log(settings);
-      const processingFee = Number(settings?.value || 0); // in INR
-      console.log(processingFee);
+      // ================= REVENUE =================
+      const revenueData = await Revenue.find({
+        orderId: order._id,
+      }).lean();
 
-      // Calculate grand total with commission
-      const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const processingFee = (revenueData || []).reduce(
+        (sum, item) => sum + Number(item.adminCommission || 0),
+        0
+      );
+
+      // ================= TOTALS =================
+      const subtotal = (order.items || []).reduce(
+        (sum, item) =>
+          sum +
+          Number(item.price || 0) *
+          Number(item.quantity || 0),
+        0
+      );
+
       const totalAmount = subtotal + processingFee;
 
-      // Set headers for download
+      // ================= RESPONSE =================
       res.setHeader(
         "Content-Disposition",
         `attachment; filename=invoice_${order._id}.pdf`
       );
-      res.setHeader("Content-Type", "application/pdf");
 
-      const doc = new PDFDocument({ margin: 40 });
+      res.setHeader(
+        "Content-Type",
+        "application/pdf"
+      );
+
+      // ================= PDF =================
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 35,
+      });
+
+      const regularFontPath = path.resolve(
+        process.cwd(),
+        "fonts/NotoSansDevanagari-Regular.ttf"
+      );
+
+      const boldFontPath = path.resolve(
+        process.cwd(),
+        "fonts/NotoSansDevanagari-Bold.ttf"
+      );
+
+      console.log("Regular Font:", regularFontPath);
+      console.log("Bold Font:", boldFontPath);
+
+      const regularExists = fs.existsSync(
+        regularFontPath
+      );
+
+      const boldExists = fs.existsSync(
+        boldFontPath
+      );
+
+      console.log(
+        "Regular exists:",
+        regularExists
+      );
+
+      console.log(
+        "Bold exists:",
+        boldExists
+      );
+
+      // Register only if files exist
+      if (regularExists && boldExists) {
+        doc.registerFont(
+          "Unicode",
+          regularFontPath
+        );
+
+        doc.registerFont(
+          "UnicodeBold",
+          boldFontPath
+        );
+      }
+
       doc.pipe(res);
 
-      // ---------------- PDF HEADER ----------------
+      doc.on("error", (err) => {
+        console.error(
+          "PDF Error:",
+          err
+        );
+      });
+
+      const normalFont =
+        regularExists ? "Unicode" : "Helvetica";
+
+      const boldFont =
+        boldExists
+          ? "UnicodeBold"
+          : "Helvetica-Bold";
+
+      // ================= HEADER =================
       doc
-        .fontSize(20)
-        .text("INVOICE", { align: "center" })
-        .moveDown(0.5);
+        .font(boldFont)
+        .fontSize(18)
+        .text("INVOICE", {
+          align: "center",
+        });
+
+      doc.moveDown(0.5);
 
       doc
-        .fontSize(10)
+        .font(normalFont)
+        .fontSize(9)
         .text(`Invoice ID: ${order._id}`)
-        .text(`Order ID: ${order.razorpayOrderId}`)
-        .text(`Date: ${new Date(order.created_at).toLocaleDateString()}`);
+        .text(
+          `Order ID: ${order.razorpayOrderId || "-"}`
+        )
+        .text(
+          `Date: ${new Date(
+            order.createdAt
+          ).toLocaleDateString()}`
+        );
 
       doc.moveDown();
 
-      // ---------------- CUSTOMER DETAILS ----------------
-      doc.fontSize(12).text("Billed To", { underline: true });
+      // ================= CUSTOMER =================
       doc
-        .fontSize(10)
-        .text(order.userId.name)
-        .text(order.userId.email)
-        .text(order.userId.phone || "-");
-
-      doc.moveDown(1.5);
-
-      // ================= TABLE =================
-      const tableTop = doc.y;
-      const itemX = 40;
-      const qtyX = 280;
-      const priceX = 340;
-      const totalX = 410;
-
-      // Table Header
-      doc
+        .font(boldFont)
         .fontSize(11)
-        .text("Item", itemX, tableTop)
-        .text("Qty", qtyX, tableTop)
-        .text("Price", priceX, tableTop)
-        .text("Total", totalX, tableTop);
+        .text("Billed To");
 
-      // Header line
-      doc.moveTo(itemX, tableTop + 15).lineTo(550, tableTop + 15).stroke();
-
-      let yPosition = tableTop + 25;
-
-      // Table Rows
-      order.items.forEach((item, i) => {
-        const itemTotal = item.price * item.quantity;
-
-        doc
-          .fontSize(10)
-          .text(item.title, itemX, yPosition, { width: 240 })
-          .text(item.quantity, qtyX, yPosition)
-          .text(`${item.price}`, priceX, yPosition)
-          .text(`${itemTotal}`, totalX, yPosition);
-
-        yPosition += 20;
-
-        // Page break safety
-        if (yPosition > 720) {
-          doc.addPage();
-          yPosition = 50;
-        }
-      });
-
-      // Bottom line
-      doc.moveTo(itemX, yPosition).lineTo(550, yPosition).stroke();
-
-      doc.moveDown(2);
-
-      // ---------------- TOTAL SECTION ----------------
       doc
-        .fontSize(10)
-        .text(`Subtotal: ${subtotal}`, { align: "right" })
-        .moveDown(0.5)
-        .text(`Processing Fee: ${processingFee}`, { align: "right" })
-        .moveDown(0.5)
-        .text(`Grand Total: ${totalAmount}`, { align: "right" });
-
-      doc.moveDown(3);
-
-      // ---------------- FOOTER ----------------
-      const footerY = doc.page.height - 60;
-      doc
+        .font(normalFont)
         .fontSize(9)
-        .text(
-          "This is a system-generated invoice. No signature required.",
+        .text(order.userId?.name || "-")
+        .text(order.userId?.email || "-")
+        .text(order.userId?.phone || "-");
+
+      doc.moveDown();
+
+      // ================= ITEMS =================
+      let y = doc.y;
+
+      doc
+        .font(boldFont)
+        .text("Item", 40, y)
+        .text("Qty", 300, y)
+        .text("Price", 380, y)
+        .text("Total", 470, y);
+
+      y += 20;
+
+      doc.font(normalFont);
+
+      (order.items || []).forEach((item) => {
+        const itemTotal =
+          Number(item.price || 0) *
+          Number(item.quantity || 0);
+
+        doc.text(
+          String(item.title || "-"),
           40,
-          footerY,
-          { align: "center", width: 500 }
+          y,
+          {
+            width: 220,
+          }
         );
 
+        doc.text(
+          String(item.quantity || 0),
+          300,
+          y
+        );
+
+        doc.text(
+          `Rs. ${item.price}`,
+          380,
+          y
+        );
+
+        doc.text(
+          `Rs. ${itemTotal}`,
+          470,
+          y
+        );
+
+        y += 30;
+      });
+
+      y += 20;
+
+      // ================= TOTAL =================
       doc
-        .fontSize(9)
+        .font(normalFont)
         .text(
-          "Thank you for your purchase!",
-          40,
-          footerY + 15,
-          { align: "center", width: 500 }
+          `Subtotal: Rs. ${subtotal}`,
+          350,
+          y
+        );
+
+      y += 20;
+
+      doc.text(
+        `Processing Fee: Rs. ${processingFee}`,
+        350,
+        y
+      );
+
+      y += 20;
+
+      doc
+        .font(boldFont)
+        .text(
+          `Grand Total: Rs. ${totalAmount}`,
+          350,
+          y
         );
 
       doc.end();
+
     } catch (err) {
-      console.error("Invoice error:", err);
-      res.status(500).json({ status: "error", msg: "Invoice generation failed" });
+      console.error(
+        "Invoice error:",
+        err
+      );
+
+      if (!res.headersSent) {
+        return res.status(500).json({
+          status: "error",
+          msg: "Invoice generation failed",
+        });
+      }
     }
   },
 
@@ -785,7 +900,7 @@ const Controller = {
       }
 
       const user = await User.findOne({ email: email.toLowerCase().trim() });
-
+     
       if (!user) {
         retData.status = "error";
         retData.httpCode = 404;
@@ -885,6 +1000,98 @@ const Controller = {
 
     } catch (err) {
       return Controller.handleError(res, err, "ERROR resetting password");
+    }
+  },
+
+  // ---------------------------
+  // Admin Auto Login User
+  // ---------------------------
+  autoLoginUser: async (req, res) => {
+    const retData = AppHelpers.Utils.responseObject();
+
+    try {
+      const { userId } = req.params;
+
+      // Find user
+      const user = await User.findById(userId);
+
+      if (!user) {
+        retData.status = "error";
+        retData.code = 404;
+        retData.httpCode = 404;
+        retData.msg = "User not found";
+
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Check account status
+      if (user.status !== 1) {
+        retData.status = "error";
+        retData.code = 403;
+        retData.httpCode = 403;
+        retData.msg =
+          "User account is deactivated by admin.";
+
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Check email verified
+      if (!user.emailVerified) {
+        retData.status = "error";
+        retData.code = 401;
+        retData.httpCode = 401;
+        retData.msg =
+          AppHelpers.ResponseMessages.VERIFIED_EMAIL;
+
+        return AppHelpers.Utils.cRes(res, retData);
+      }
+
+      // Increment token version
+      const updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        {
+          $inc: {
+            token_version: 1,
+          },
+        },
+        {
+          new: true,
+        }
+      );
+
+      // Generate JWT Token
+      const token = await AppHelpers.GenJWTToken({
+        userType: "users",
+        id: user._id,
+        tokenVersion: updatedUser.token_version,
+      });
+
+      // Remove password
+      const userObj = user.toObject();
+      delete userObj.password;
+
+      // Set Auth Cookie
+      res.cookie("userAuthToken", token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "Lax",
+        maxAge: 6 * 60 * 60 * 1000,
+      });
+
+      retData.status = "success";
+      retData.code = 200;
+      retData.httpCode = 200;
+      retData.msg = "Auto login successful";
+      retData.data = userObj;
+
+      return AppHelpers.Utils.cRes(res, retData);
+
+    } catch (err) {
+      return Controller.handleError(
+        res,
+        err,
+        "ERROR in auto login"
+      );
     }
   },
 

@@ -19,22 +19,34 @@ const endUserSchemas = {
         'any.required': 'Email is required',
       }),
 
+    // password: Joi.string()
+    //   .trim()
+    //   .min(8)
+    //   .pattern(
+    //     new RegExp(
+    //       '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$'
+    //     )
+    //   )
+    //   .required()
+    //   .messages({
+    //     'string.empty': 'Password is required',
+    //     'string.min': 'Password must be at least 8 characters long',
+    //     'string.pattern.base':
+    //       'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character',
+    //     'any.required': 'Password is required',
+    //   }),
+
     password: Joi.string()
-      .trim()
-      .min(8)
-      .pattern(
-        new RegExp(
-          '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$'
-        )
-      )
-      .required()
-      .messages({
-        'string.empty': 'Password is required',
-        'string.min': 'Password must be at least 8 characters long',
-        'string.pattern.base':
-          'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character',
-        'any.required': 'Password is required',
-      }),
+    .trim()
+    .min(8)
+    .max(100)
+    .required()
+    .messages({
+      'string.empty': 'Password is required',
+      'string.min': 'Password must be at least 8 characters long',
+      'string.max': 'Password must not exceed 100 characters',
+      'any.required': 'Password is required',
+    }),
 
     phone: Joi.string()
       .pattern(/^[0-9]{7,15}$/)
@@ -69,22 +81,34 @@ const endUserSchemas = {
         'any.required': 'Email is required',
       }),
 
+    // password: Joi.string()
+    //   .trim()
+    //   .min(8)
+    //   .pattern(
+    //     new RegExp(
+    //       '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$'
+    //     )
+    //   )
+    //   .required()
+    //   .messages({
+    //     'string.empty': 'Password is required',
+    //     'string.min': 'Password must be at least 8 characters long',
+    //     'string.pattern.base':
+    //       'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character',
+    //     'any.required': 'Password is required',
+    //   }),
+
     password: Joi.string()
-      .trim()
-      .min(8)
-      .pattern(
-        new RegExp(
-          '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$'
-        )
-      )
-      .required()
-      .messages({
-        'string.empty': 'Password is required',
-        'string.min': 'Password must be at least 8 characters long',
-        'string.pattern.base':
-          'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character',
-        'any.required': 'Password is required',
-      }),
+    .trim()
+    .min(8)
+    .max(100)
+    .required()
+    .messages({
+      'string.empty': 'Password is required',
+      'string.min': 'Password must be at least 8 characters long',
+      'string.max': 'Password must not exceed 100 characters',
+      'any.required': 'Password is required',
+    }),
   })
 };
 

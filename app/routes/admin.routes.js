@@ -153,6 +153,9 @@ module.exports = function(app) {
   router.post("/end-user/forgot-password", endUserController.forgotPassword);
   router.post("/end-user/reset-password", endUserController.resetPassword);
   
+  // Auto login user 
+  router.post("/auto-login/:userId",Authenticate,endUserController.autoLoginUser);
+  
   // notes api
   router.post("/end-user/document/create",userAuth,uploadDocument.fields([{ name: "file", maxCount: 1 },{ name: "sampleFile", maxCount: 1 },{ name: "docImage", maxCount: 1 }]),validate(documentValidation.create),documentController.create);
   router.get("/end-user/document/details/:slug", userAuth, documentController.detailsBySlug);
@@ -162,6 +165,8 @@ module.exports = function(app) {
   router.get("/end-user/document/get-purchase-notes", userAuth, documentController.getPurchasedNotes);
   router.put("/end-user/document/delete-document", userAuth,documentController.deleteDocument);
 
+
+ 
 
   // wish list api
   router.get("/end-user/wishlist", userAuth, documentController.getWishlist);
