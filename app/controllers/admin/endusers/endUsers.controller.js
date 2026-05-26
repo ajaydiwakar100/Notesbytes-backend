@@ -502,394 +502,178 @@ const Controller = {
   },
 
 
-  // ---------------------------
-  // Purchase Invoice
-  // ---------------------------
-  // generateInvoice: async (req, res) => {
-  //   try {
-  //     const { orderId } = req.query;
+ generateInvoice: async (req, res) => {
+  try {
+    const { orderId } = req.query;
 
-  //     const order = await PurchaseOrder.findById(orderId)
-  //       .populate("userId", "name email phone")
-  //       .lean();
+    const order = await PurchaseOrder.findById(orderId)
+      .populate("userId", "name email phone")
+      .lean();
 
-  //     if (!order) {
-  //       return res.status(404).json({
-  //         status: "error",
-  //         msg: "Order not found",
-  //       });
-  //     }
+    if (!order) {
+      return res.status(404).json({
+        status: "error",
+        msg: "Order not found",
+      });
+    }
 
-  //     // ================= REVENUE =================
-  //     const revenueData = await Revenue.find({
-  //       orderId: order._id,
-  //     }).lean();
+    // ================= REVENUE =================
+    const revenueData = await Revenue.find({
+      orderId: order._id,
+    }).lean();
 
-  //     const processingFee = (revenueData || []).reduce(
-  //       (sum, item) => sum + Number(item.adminCommission || 0),
-  //       0
-  //     );
+    const processingFee = (revenueData || []).reduce(
+      (sum, item) =>
+        sum + Number(item.adminCommission || 0),
+      0
+    );
 
-  //     // ================= TOTALS =================
-  //     const subtotal = (order.items || []).reduce(
-  //       (sum, item) =>
-  //         sum +
-  //         Number(item.price || 0) *
-  //         Number(item.quantity || 0),
-  //       0
-  //     );
-
-  //     const totalAmount = subtotal + processingFee;
-
-  //     // ================= RESPONSE =================
-  //     res.setHeader(
-  //       "Content-Disposition",
-  //       `attachment; filename=invoice_${order._id}.pdf`
-  //     );
-
-  //     res.setHeader(
-  //       "Content-Type",
-  //       "application/pdf"
-  //     );
-
-  //     // ================= PDF =================
-  //     const doc = new PDFDocument({
-  //       size: "A4",
-  //       margin: 35,
-  //     });
-
-  //     const regularFontPath = path.resolve(
-  //       process.cwd(),
-  //       "fonts/NotoSansDevanagari-Regular.ttf"
-  //     );
-
-  //     const boldFontPath = path.resolve(
-  //       process.cwd(),
-  //       "fonts/NotoSansDevanagari-Bold.ttf"
-  //     );
-
-  //     console.log("Regular Font:", regularFontPath);
-  //     console.log("Bold Font:", boldFontPath);
-
-  //     const regularExists = fs.existsSync(
-  //       regularFontPath
-  //     );
-
-  //     const boldExists = fs.existsSync(
-  //       boldFontPath
-  //     );
-
-  //     console.log(
-  //       "Regular exists:",
-  //       regularExists
-  //     );
-
-  //     console.log(
-  //       "Bold exists:",
-  //       boldExists
-  //     );
-
-  //     // Register only if files exist
-  //     if (regularExists && boldExists) {
-  //       doc.registerFont(
-  //         "Unicode",
-  //         regularFontPath
-  //       );
-
-  //       doc.registerFont(
-  //         "UnicodeBold",
-  //         boldFontPath
-  //       );
-  //     }
-
-  //     doc.pipe(res);
-
-  //     doc.on("error", (err) => {
-  //       console.error(
-  //         "PDF Error:",
-  //         err
-  //       );
-  //     });
-
-  //     const normalFont =
-  //       regularExists ? "Unicode" : "Helvetica";
-
-  //     const boldFont =
-  //       boldExists
-  //         ? "UnicodeBold"
-  //         : "Helvetica-Bold";
-
-  //     // ================= HEADER =================
-  //     doc
-  //       .font(boldFont)
-  //       .fontSize(18)
-  //       .text("INVOICE", {
-  //         align: "center",
-  //       });
-
-  //     doc.moveDown(0.5);
-
-  //     doc
-  //       .font(normalFont)
-  //       .fontSize(9)
-  //       .text(`Invoice ID: ${order._id}`)
-  //       .text(
-  //         `Order ID: ${order.razorpayOrderId || "-"}`
-  //       )
-  //       .text(
-  //         `Date: ${new Date(
-  //           order.createdAt
-  //         ).toLocaleDateString()}`
-  //       );
-
-  //     doc.moveDown();
-
-  //     // ================= CUSTOMER =================
-  //     doc
-  //       .font(boldFont)
-  //       .fontSize(11)
-  //       .text("Billed To");
-
-  //     doc
-  //       .font(normalFont)
-  //       .fontSize(9)
-  //       .text(order.userId?.name || "-")
-  //       .text(order.userId?.email || "-")
-  //       .text(order.userId?.phone || "-");
-
-  //     doc.moveDown();
-
-  //     // ================= ITEMS =================
-  //     let y = doc.y;
-
-  //     doc
-  //       .font(boldFont)
-  //       .text("Item", 40, y)
-  //       .text("Qty", 300, y)
-  //       .text("Price", 380, y)
-  //       .text("Total", 470, y);
-
-  //     y += 20;
-
-  //     doc.font(normalFont);
-
-  //     (order.items || []).forEach((item) => {
-  //       const itemTotal =
-  //         Number(item.price || 0) *
-  //         Number(item.quantity || 0);
-
-  //       doc.text(
-  //         String(item.title || "-"),
-  //         40,
-  //         y,
-  //         {
-  //           width: 220,
-  //         }
-  //       );
-
-  //       doc.text(
-  //         String(item.quantity || 0),
-  //         300,
-  //         y
-  //       );
-
-  //       doc.text(
-  //         `Rs. ${item.price}`,
-  //         380,
-  //         y
-  //       );
-
-  //       doc.text(
-  //         `Rs. ${itemTotal}`,
-  //         470,
-  //         y
-  //       );
-
-  //       y += 30;
-  //     });
-
-  //     y += 20;
-
-  //     // ================= TOTAL =================
-  //     doc
-  //       .font(normalFont)
-  //       .text(
-  //         `Subtotal: Rs. ${subtotal}`,
-  //         350,
-  //         y
-  //       );
-
-  //     y += 20;
-
-  //     doc.text(
-  //       `Processing Fee: Rs. ${processingFee}`,
-  //       350,
-  //       y
-  //     );
-
-  //     y += 20;
-
-  //     doc
-  //       .font(boldFont)
-  //       .text(
-  //         `Grand Total: Rs. ${totalAmount}`,
-  //         350,
-  //         y
-  //       );
-
-  //     doc.end();
-
-  //   } catch (err) {
-  //     console.error(
-  //       "Invoice error:",
-  //       err
-  //     );
-
-  //     if (!res.headersSent) {
-  //       return res.status(500).json({
-  //         status: "error",
-  //         msg: "Invoice generation failed",
-  //       });
-  //     }
-  //   }
-  // },
-
-  generateInvoice: async (req, res) => {
-    try {
-      const { orderId } = req.query;
-
-      const order = await PurchaseOrder.findById(orderId)
-        .populate("userId", "name email phone")
-        .lean();
-
-      if (!order) {
-        return res.status(404).json({
-          status: "error",
-          msg: "Order not found",
-        });
-      }
-
-      // Revenue
-      const revenueData = await Revenue.find({
-        orderId: order._id,
-      }).lean();
-
-      const processingFee = revenueData.reduce(
-        (sum, item) => sum + Number(item.adminCommission || 0),
-        0
-      );
-
-      // Total
-      const subtotal = (order.items || []).reduce(
-        (sum, item) =>
-          sum +
-          Number(item.price || 0) *
+    // ================= TOTALS =================
+    const subtotal = (order.items || []).reduce(
+      (sum, item) =>
+        sum +
+        Number(item.price || 0) *
           Number(item.quantity || 0),
-        0
+      0
+    );
+
+    const totalAmount =
+      subtotal + processingFee;
+
+    // ================= RESPONSE =================
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=invoice_${order._id}.pdf`
+    );
+
+    res.setHeader(
+      "Content-Type",
+      "application/pdf"
+    );
+
+    // ================= PDF =================
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 40,
+    });
+
+    doc.pipe(res);
+
+    doc.on("error", (err) => {
+      console.error(
+        "PDF Error:",
+        err
       );
+    });
 
-      const totalAmount = subtotal + processingFee;
-
-      // Response
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=invoice_${order._id}.pdf`
-      );
-
-      res.setHeader(
-        "Content-Type",
-        "application/pdf"
-      );
-
-      const doc = new PDFDocument({
-        size: "A4",
-        margin: 40,
+    // ================= HEADER =================
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(20)
+      .text("INVOICE", {
+        align: "center",
       });
 
-      doc.pipe(res);
+    doc.moveDown();
 
-      // HEADER
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(20)
-        .text("INVOICE", {
-          align: "center",
-        });
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .text(
+        `Invoice ID: ${order._id}`
+      )
+      .text(
+        `Order ID: ${
+          order.razorpayOrderId || "-"
+        }`
+      )
+      .text(
+        `Date: ${new Date(
+          order.createdAt
+        ).toLocaleDateString()}`
+      );
 
-      doc.moveDown();
+    doc.moveDown();
 
-      doc
-        .font("Helvetica")
-        .fontSize(10)
-        .text(`Invoice ID: ${order._id}`)
-        .text(
-          `Order ID: ${
-            order.razorpayOrderId || "-"
-          }`
+    // ================= CUSTOMER =================
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .text("Billed To");
+
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .text(
+        String(
+          order.userId?.name || "-"
         )
-        .text(
-          `Date: ${new Date(
-            order.createdAt
-          ).toLocaleDateString()}`
-        );
+      )
+      .text(
+        String(
+          order.userId?.email || "-"
+        )
+      )
+      .text(
+        String(
+          order.userId?.phone || "-"
+        )
+      );
 
-      doc.moveDown();
+    doc.moveDown();
 
-      // CUSTOMER
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(12)
-        .text("Billed To");
+    // ================= TABLE HEADER =================
+    let y = doc.y;
 
-      doc
-        .font("Helvetica")
-        .fontSize(10)
-        .text(order.userId?.name || "-")
-        .text(order.userId?.email || "-")
-        .text(order.userId?.phone || "-");
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text("Item", 40, y)
+      .text("Qty", 300, y)
+      .text("Price", 380, y)
+      .text("Total", 470, y);
 
-      doc.moveDown();
+    y += 20;
 
-      // TABLE HEADER
-      let y = doc.y;
+    doc
+      .moveTo(40, y - 5)
+      .lineTo(550, y - 5)
+      .stroke();
 
-      doc
-        .font("Helvetica-Bold")
-        .text("Item", 40, y)
-        .text("Qty", 300, y)
-        .text("Price", 380, y)
-        .text("Total", 470, y);
+    // ================= ITEMS =================
+    doc.font("Helvetica");
 
-      y += 20;
-
-      doc
-        .moveTo(40, y - 5)
-        .lineTo(550, y - 5)
-        .stroke();
-
-      // ITEMS
-      doc.font("Helvetica");
-
-      (order.items || []).forEach((item) => {
+    (order.items || []).forEach(
+      (item) => {
         const itemTotal =
           Number(item.price || 0) *
-          Number(item.quantity || 0);
+          Number(
+            item.quantity || 0
+          );
 
         doc.text(
-          String(item.title || "-"),
+          String(
+            item.title || "-"
+          ),
           40,
           y,
-          { width: 220 }
+          {
+            width: 220,
+          }
         );
 
         doc.text(
-          String(item.quantity || 0),
+          String(
+            item.quantity || 0
+          ),
           300,
           y
         );
 
         doc.text(
-          `Rs. ${item.price || 0}`,
+          `Rs. ${
+            item.price || 0
+          }`,
           380,
           y
         );
@@ -901,62 +685,105 @@ const Controller = {
         );
 
         y += 35;
-      });
 
-      y += 20;
+        // Page break if needed
+        if (y > 680) {
+          doc.addPage();
+          y = 50;
+        }
+      }
+    );
 
-      // TOTALS
-      doc
-        .font("Helvetica")
-        .text(
-          `Subtotal: Rs. ${subtotal}`,
-          350,
-          y
-        );
+    // ================= TOTALS =================
+    y += 20;
 
-      y += 20;
+    doc
+      .moveTo(350, y - 5)
+      .lineTo(550, y - 5)
+      .stroke();
 
-      doc.text(
-        `Processing Fee: Rs. ${processingFee}`,
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .text(
+        `Subtotal: Rs. ${subtotal}`,
         350,
         y
       );
 
-      y += 20;
+    y += 18;
 
-      doc
-        .font("Helvetica-Bold")
-        .text(
-          `Grand Total: Rs. ${totalAmount}`,
-          350,
-          y
-        );
+    doc.text(
+      `Processing Fee: Rs. ${processingFee}`,
+      350,
+      y
+    );
 
-      // FOOTER
-      doc.moveDown(4);
+    y += 22;
 
-      doc
-        .font("Helvetica")
-        .fontSize(8)
-        .text(
-          "This is a system-generated invoice and does not qualify as a legal tax invoice.",
-          {
-            align: "center",
-          }
-        );
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .text(
+        `Grand Total: Rs. ${totalAmount}`,
+        350,
+        y
+      );
 
-      doc.end();
+    // ================= FOOTER =================
+    const footerY =
+      doc.page.height - 70;
 
-    } catch (err) {
-      console.error("Invoice error:", err);
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .text(
+        "This is a system-generated invoice and does not qualify as a legal tax invoice.",
+        40,
+        footerY,
+        {
+          align: "center",
+          width: 520,
+        }
+      );
 
+    doc.text(
+      "No GST/VAT has been charged unless explicitly mentioned.",
+      40,
+      footerY + 12,
+      {
+        align: "center",
+        width: 520,
+      }
+    );
+
+    doc.text(
+      "Thank you for your purchase!",
+      40,
+      footerY + 24,
+      {
+        align: "center",
+        width: 520,
+      }
+    );
+
+    // ================= END =================
+    doc.end();
+
+  } catch (err) {
+    console.error(
+      "Invoice error:",
+      err
+    );
+
+    if (!res.headersSent) {
       return res.status(500).json({
         status: "error",
         msg: "Invoice generation failed",
       });
     }
-  },
-
+  }
+},
   // ---------------------------
   // Update Profile 
   // ---------------------------
