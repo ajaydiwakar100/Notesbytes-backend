@@ -755,305 +755,207 @@ const Controller = {
   // },
 
   generateInvoice: async (req, res) => {
-  try {
-    const { orderId } = req.query;
+    try {
+      const { orderId } = req.query;
 
-    const order = await PurchaseOrder.findById(orderId)
-      .populate("userId", "name email phone")
-      .lean();
+      const order = await PurchaseOrder.findById(orderId)
+        .populate("userId", "name email phone")
+        .lean();
 
-    if (!order) {
-      return res.status(404).json({
-        status: "error",
-        msg: "Order not found",
-      });
-    }
-
-    // ================= REVENUE =================
-    const revenueData = await Revenue.find({
-      orderId: order._id,
-    }).lean();
-
-    const processingFee = (revenueData || []).reduce(
-      (sum, item) => sum + Number(item.adminCommission || 0),
-      0
-    );
-
-    // ================= TOTALS =================
-    const subtotal = (order.items || []).reduce(
-      (sum, item) =>
-        sum +
-        Number(item.price || 0) *
-        Number(item.quantity || 0),
-      0
-    );
-
-    const totalAmount = subtotal + processingFee;
-
-    // ================= RESPONSE =================
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=invoice_${order._id}.pdf`
-    );
-
-    res.setHeader(
-      "Content-Type",
-      "application/pdf"
-    );
-
-    // ================= PDF =================
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 40,
-    });
-
-    // Pipe PDF
-    doc.pipe(res);
-
-    // ================= FONT PATHS =================
-    const regularFontPath = path.join(
-      process.cwd(),
-      "fonts",
-      "NotoSansDevanagari-Regular.ttf"
-    );
-
-    const boldFontPath = path.join(
-      process.cwd(),
-      "fonts",
-      "NotoSansDevanagari-Bold.ttf"
-    );
-
-    console.log("Regular:", regularFontPath);
-    console.log("Bold:", boldFontPath);
-
-    const regularExists =
-      fs.existsSync(regularFontPath);
-
-    const boldExists =
-      fs.existsSync(boldFontPath);
-
-    console.log(
-      "Regular exists:",
-      regularExists
-    );
-
-    console.log(
-      "Bold exists:",
-      boldExists
-    );
-
-    // Register fonts
-    if (regularExists) {
-      doc.registerFont(
-        "Unicode",
-        regularFontPath
-      );
-    }
-
-    if (boldExists) {
-      doc.registerFont(
-        "UnicodeBold",
-        boldFontPath
-      );
-    }
-
-    const normalFont =
-      regularExists
-        ? "Unicode"
-        : "Helvetica";
-
-    const boldFont =
-      boldExists
-        ? "UnicodeBold"
-        : "Helvetica-Bold";
-
-    // PDF Error
-    doc.on("error", (err) => {
-      console.log("PDF Error:", err);
-    });
-
-    // ================= HEADER =================
-    doc
-      .font(boldFont)
-      .fontSize(20)
-      .text("INVOICE", {
-        align: "center",
-      });
-
-    doc.moveDown();
-
-    doc
-      .font(normalFont)
-      .fontSize(10)
-      .text(`Invoice ID: ${order._id}`)
-      .text(
-        `Order ID: ${
-          order.razorpayOrderId || "-"
-        }`
-      )
-      .text(
-        `Date: ${new Date(
-          order.createdAt
-        ).toLocaleDateString()}`
-      );
-
-    doc.moveDown();
-
-    // ================= CUSTOMER =================
-    doc
-      .font(boldFont)
-      .fontSize(12)
-      .text("Billed To");
-
-    doc
-      .font(normalFont)
-      .fontSize(10)
-      .text(
-        String(order.userId?.name || "-")
-      )
-      .text(
-        String(order.userId?.email || "-")
-      )
-      .text(
-        String(order.userId?.phone || "-")
-      );
-
-    doc.moveDown();
-
-    // ================= TABLE HEADER =================
-    let y = doc.y;
-
-    doc
-      .font(boldFont)
-      .fontSize(10)
-      .text("Item", 40, y)
-      .text("Qty", 300, y)
-      .text("Price", 380, y)
-      .text("Total", 470, y);
-
-    y += 20;
-
-    doc
-      .moveTo(40, y - 5)
-      .lineTo(550, y - 5)
-      .stroke();
-
-    // ================= ITEMS =================
-    doc.font(normalFont);
-
-    (order.items || []).forEach((item) => {
-
-      const itemTotal =
-        Number(item.price || 0) *
-        Number(item.quantity || 0);
-
-      // Force UTF handling
-      const title = Buffer.from(
-        String(item.title || "-"),
-        "utf8"
-      ).toString();
-
-      doc.text(
-        title,
-        40,
-        y,
-        {
-          width: 220,
-        }
-      );
-
-      doc.text(
-        String(item.quantity || 0),
-        300,
-        y
-      );
-
-      doc.text(
-        `Rs. ${item.price || 0}`,
-        380,
-        y
-      );
-
-      doc.text(
-        `Rs. ${itemTotal}`,
-        470,
-        y
-      );
-
-      y += 35;
-
-      // New page if overflow
-      if (y > 700) {
-        doc.addPage();
-        y = 50;
+      if (!order) {
+        return res.status(404).json({
+          status: "error",
+          msg: "Order not found",
+        });
       }
-    });
 
-    y += 20;
+      // Revenue
+      const revenueData = await Revenue.find({
+        orderId: order._id,
+      }).lean();
 
-    // ================= TOTALS =================
-    doc
-      .moveTo(350, y - 5)
-      .lineTo(550, y - 5)
-      .stroke();
-
-    doc
-      .font(normalFont)
-      .fontSize(10)
-      .text(
-        `Subtotal: Rs. ${subtotal}`,
-        350,
-        y
+      const processingFee = revenueData.reduce(
+        (sum, item) => sum + Number(item.adminCommission || 0),
+        0
       );
 
-    y += 20;
-
-    doc.text(
-      `Processing Fee: Rs. ${processingFee}`,
-      350,
-      y
-    );
-
-    y += 25;
-
-    doc
-      .font(boldFont)
-      .fontSize(12)
-      .text(
-        `Grand Total: Rs. ${totalAmount}`,
-        350,
-        y
+      // Total
+      const subtotal = (order.items || []).reduce(
+        (sum, item) =>
+          sum +
+          Number(item.price || 0) *
+          Number(item.quantity || 0),
+        0
       );
 
-    // ================= FOOTER =================
-    doc.moveDown(4);
+      const totalAmount = subtotal + processingFee;
 
-    doc
-      .font(normalFont)
-      .fontSize(8)
-      .text(
-        "This is a system-generated invoice and does not qualify as a legal tax invoice.",
-        {
+      // Response
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=invoice_${order._id}.pdf`
+      );
+
+      res.setHeader(
+        "Content-Type",
+        "application/pdf"
+      );
+
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 40,
+      });
+
+      doc.pipe(res);
+
+      // HEADER
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(20)
+        .text("INVOICE", {
           align: "center",
-        }
+        });
+
+      doc.moveDown();
+
+      doc
+        .font("Helvetica")
+        .fontSize(10)
+        .text(`Invoice ID: ${order._id}`)
+        .text(
+          `Order ID: ${
+            order.razorpayOrderId || "-"
+          }`
+        )
+        .text(
+          `Date: ${new Date(
+            order.createdAt
+          ).toLocaleDateString()}`
+        );
+
+      doc.moveDown();
+
+      // CUSTOMER
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(12)
+        .text("Billed To");
+
+      doc
+        .font("Helvetica")
+        .fontSize(10)
+        .text(order.userId?.name || "-")
+        .text(order.userId?.email || "-")
+        .text(order.userId?.phone || "-");
+
+      doc.moveDown();
+
+      // TABLE HEADER
+      let y = doc.y;
+
+      doc
+        .font("Helvetica-Bold")
+        .text("Item", 40, y)
+        .text("Qty", 300, y)
+        .text("Price", 380, y)
+        .text("Total", 470, y);
+
+      y += 20;
+
+      doc
+        .moveTo(40, y - 5)
+        .lineTo(550, y - 5)
+        .stroke();
+
+      // ITEMS
+      doc.font("Helvetica");
+
+      (order.items || []).forEach((item) => {
+        const itemTotal =
+          Number(item.price || 0) *
+          Number(item.quantity || 0);
+
+        doc.text(
+          String(item.title || "-"),
+          40,
+          y,
+          { width: 220 }
+        );
+
+        doc.text(
+          String(item.quantity || 0),
+          300,
+          y
+        );
+
+        doc.text(
+          `Rs. ${item.price || 0}`,
+          380,
+          y
+        );
+
+        doc.text(
+          `Rs. ${itemTotal}`,
+          470,
+          y
+        );
+
+        y += 35;
+      });
+
+      y += 20;
+
+      // TOTALS
+      doc
+        .font("Helvetica")
+        .text(
+          `Subtotal: Rs. ${subtotal}`,
+          350,
+          y
+        );
+
+      y += 20;
+
+      doc.text(
+        `Processing Fee: Rs. ${processingFee}`,
+        350,
+        y
       );
 
-    doc.end();
+      y += 20;
 
-  } catch (err) {
-    console.error(
-      "Invoice error:",
-      err
-    );
+      doc
+        .font("Helvetica-Bold")
+        .text(
+          `Grand Total: Rs. ${totalAmount}`,
+          350,
+          y
+        );
 
-    if (!res.headersSent) {
+      // FOOTER
+      doc.moveDown(4);
+
+      doc
+        .font("Helvetica")
+        .fontSize(8)
+        .text(
+          "This is a system-generated invoice and does not qualify as a legal tax invoice.",
+          {
+            align: "center",
+          }
+        );
+
+      doc.end();
+
+    } catch (err) {
+      console.error("Invoice error:", err);
+
       return res.status(500).json({
         status: "error",
         msg: "Invoice generation failed",
       });
     }
-  }
-},
+  },
 
   // ---------------------------
   // Update Profile 
