@@ -590,13 +590,13 @@ const Controller = {
           90
         );
 
-      doc.text(
-        `Date : ${new Date(
-          order.createdAt
-        ).toLocaleDateString()}`,
-        400,
-        90
-      );
+      // doc.text(
+      //   `Date : ${new Date(
+      //     order.createdAt
+      //   ).toLocaleDateString()}`,
+      //   400,
+      //   90
+      // );
 
       // ================= CUSTOMER =================
 
