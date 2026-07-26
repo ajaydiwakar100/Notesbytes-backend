@@ -59,6 +59,10 @@ const customerPaymentLogSchema = new mongoose.Schema(
       default: null,
     },
 
+    source: {
+      type: String,
+      default: null,
+    },
     logData: {
       type: Object, // stores full webhook payload or order response
       default: {},

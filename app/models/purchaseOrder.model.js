@@ -28,8 +28,28 @@ const PurchaseOrderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["CREATED", "PAID", "CANCELLED"],
+      enum: ["CREATED", "PAID", "CANCELLED", "PENDING"],
       default: "CREATED",
+    },
+
+    paymentStatus: {
+      type: String,
+      default: "PENDING",
+    },
+
+    paymentId: {
+      type: String,
+      default: null,
+    },
+
+    signature: {
+      type: String,
+      default: null,
+    },
+
+    paidAt: {
+      type: String,
+      default: null,
     },
 
     items: [

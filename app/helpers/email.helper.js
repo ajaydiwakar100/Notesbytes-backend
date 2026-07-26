@@ -56,3 +56,29 @@ exports.sendDynamicTemplateEmail = async ({
     html,
   });
 };
+
+exports.buildOrderItemsHTML = async (items) => {
+    let rows = "";
+
+    items.forEach((item) => {
+        rows += `
+        <tr>
+            <td>${item.title}</td>
+            <td>${item.shortDescription || "-"}</td>
+            <td>₹${item.price}</td>
+            <td>${item.author || "-"}</td>
+            <td>${item.subject || "-"}</td>
+            <td>${item.exam || "-"}</td>
+            <td>${item.language || "-"}</td>
+            <td>${item.pages || "-"}</td>
+            <td>${item.format || "-"}</td>
+            <td>
+                <a href="${process.env.BASE_URL}/${item.filePath}" target="_blank">
+                    Download
+                </a>
+            </td>
+        </tr>`;
+    });
+
+    return rows;
+};

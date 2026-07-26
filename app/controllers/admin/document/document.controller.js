@@ -11,6 +11,8 @@ const crypto = require("crypto");
 const {renderTemplate} = require('../../../helpers/renderTemplate.helper');
 const {sendEmail} = require('../../../helpers/email.helper.js');
 const { sendDynamicTemplateEmail } = require("../../../helpers/email.helper.js");
+const PaymentService = require("../../../services/payment.service.js");
+const Logger = require("../../../helpers/logger.js");
 
 
 const Controller = {
@@ -1778,403 +1780,309 @@ const Controller = {
         }
     },
 
-    // --------------------------------------------------------
-    // CREATE ORDER ON RAZORPAY
-    // --------------------------------------------------------
-    createOrder: async (req, res) => {  
-        const retData = AppHelpers.Utils.responseObject();
     
+    // ─────────────────────────────────────────────────────────────
+    // CREATE ORDER ON RAZORPAY
+    // ─────────────────────────────────────────────────────────────
+    createOrder: async (req, res) => {
+        const retData = AppHelpers.Utils.responseObject();
+        let session = null;
+        let purchaseOrder = null;
+        console.log("SSSS");
         try {
-            const { amount, currency, checkoutType } = req.body;
+
+            const { currency = "INR", checkoutType } = req.body;
             const userId = req.user.id;
 
-            if (!amount) {
-                retData.status = "error";
-                retData.code = 400;
-                retData.httpCode = 400;
-                retData.msg = "Amount is required";
-                return AppHelpers.Utils.cRes(res, retData);
+            // -------------------------------------------------------
+            // Validate Request
+            // -------------------------------------------------------
+            if (checkoutType !== 1) {
+                throw new Error("Invalid checkout type.");
             }
 
-            // 1️⃣ Fetch cart snapshot
-            const cartItems = await Cart.findOne({ user: userId })
-            .populate({
+            if (currency !== "INR") {
+                throw new Error("Invalid currency.");
+            }
+
+            // -------------------------------------------------------
+            // Fetch Cart
+            // -------------------------------------------------------
+            const cart = await Cart.findOne({ user: userId }).populate({
                 path: "items.product",
-                select: "title price docImage slug uploadedBy", // optional fields
+                select: "title price finalPrice docImage slug uploadedBy sellerId",
             });
 
-            if (cartItems.items.length === 0) {
-                retData.status = "error";
-                retData.code = 400;
-                retData.httpCode = 400;
-                retData.msg = "Cart is empty";
-                return AppHelpers.Utils.cRes(res, retData);
+            if (!cart || cart.items.length === 0) {
+                throw new Error("Cart is empty.");
             }
 
-            // 2️⃣ Init Razorpay
-            let razorpay;
-            if (checkoutType === 1) {
-                razorpay = new Razorpay({
-                    key_id: process.env.RAZORPAY_KEY_ID,
-                    key_secret: process.env.RAZORPAY_KEY_SECRET,
-                });
-            } else {
-                retData.status = "error";
-                retData.msg = "Invalid checkout type";
-                return AppHelpers.Utils.cRes(res, retData);
+            // -------------------------------------------------------
+            // Validate Products
+            // -------------------------------------------------------
+            const invalidProducts = cart.items.filter(item => !item.product);
+
+            if (invalidProducts.length > 0) {
+                throw new Error("Some products no longer exist.");
             }
 
-            // 3️⃣ Create Razorpay Order
-            const options = {
-                amount: Math.round(amount * 100), // paise
-                currency,
-                receipt: `razorpay_receipt_${Date.now()}`,
-            };
+            // -------------------------------------------------------
+            // Calculate Amount (Backend)
+            // -------------------------------------------------------
+            let amount = 0;
 
-            const order = await razorpay.orders.create(options);
+            cart.items.forEach(item => {
+                amount += Number(item.product.finalPrice || item.product.price) * item.quantity;
+            });
 
-            // 4️⃣ Create Purchase Order (IMPORTANT)
-            const purchaseOrder = await PurchaseOrder.create({
+            if (amount <= 0) {
+                throw new Error("Invalid cart amount.");
+            }
+
+            // -------------------------------------------------------
+            // Check Existing Pending Order
+            // -------------------------------------------------------
+            const existingOrder = await PurchaseOrder.findOne({
                 userId,
-                razorpayOrderId: order.id,
+                paymentStatus: "PENDING"
+            });
+
+            // if (existingOrder) {
+
+            //     retData.status = "success";
+            //     retData.code = 200;
+            //     retData.httpCode = 200;
+            //     retData.msg = "Pending order already exists.";
+
+            //     retData.data = {
+            //         key: process.env.RAZORPAY_KEY_ID,
+            //         razorpayOrderId: existingOrder.razorpayOrderId,
+            //         purchaseOrderId: existingOrder._id,
+            //         amount: existingOrder.amount * 100,
+            //         currency: existingOrder.currency
+            //     };
+
+            //     return AppHelpers.Utils.cRes(res, retData);
+            // }
+
+            // -------------------------------------------------------
+            // Razorpay Instance
+            // -------------------------------------------------------
+            const razorpay = new Razorpay({
+                key_id: process.env.RAZORPAY_KEY_ID,
+                key_secret: process.env.RAZORPAY_KEY_SECRET,
+            });
+
+            const receipt = `NB_${userId.slice(-6)}_${Date.now()}`;
+
+            const razorpayOrder = await razorpay.orders.create({
+                amount: Math.round(amount * 100),
+                currency,
+                receipt
+            });
+
+            console.log(razorpayOrder);
+
+            // -------------------------------------------------------
+            // Mongo Transaction
+            // -------------------------------------------------------
+            session = await mongoose.startSession();
+            session.startTransaction();
+
+            // Purchase Order
+            [purchaseOrder] = await PurchaseOrder.create([{
+                userId,
+                razorpayOrderId: razorpayOrder.id,
                 amount,
                 currency,
-                status: "CREATED",
-                items: cartItems.items.map(item => ({
+                receipt,
+                status: "PENDING",
+                paymentStatus: "PENDING",
+                paymentId: null,
+                signature: null,
+                paidAt: null,
+                items: cart.items.map(item => ({
                     productId: item.product._id,
                     title: item.product.title,
                     price: item.product.price,
-                    quantity: item.quantity,
-                })),
-            });
+                    finalPrice: item.product.finalPrice,
+                    sellerId: item.product.sellerId || item.product.uploadedBy,
+                    quantity: item.quantity
+                }))
 
-            // Create Invoice
-            const invoice = await Invoice.create({
+            }], { session });
+
+            // Invoice
+            const [invoice] = await Invoice.create([{
                 userId,
                 gateway: "razorpay",
-                orderId: order.id,
-                invoiceNumber: "INV-" + Date.now(),
+                orderId: razorpayOrder.id,
+                invoiceNumber: `INV-${Date.now()}`,
                 amount,
                 currency,
-                receipt: order.receipt,
-                status: "PENDING",
-            });
+                receipt,
+                status: "PENDING"
+
+            }], { session });
 
             // Payment Log
-            await PaymentLog.create({
+            await PaymentLog.create([{
                 invoiceId: invoice._id,
                 userId,
                 gateway: "razorpay",
-                orderId: order.id,
-                eventType: "order_created",
+                orderId: razorpayOrder.id,
+                eventType: "ORDER_CREATED",
                 amount,
                 currency,
                 status: "PENDING",
-                logData: order,
+                logData: razorpayOrder
+
+            }], { session });
+
+            await session.commitTransaction();
+            session.endSession();
+
+            // -------------------------------------------------------
+            // Response
+            // -------------------------------------------------------
+            retData.status = "success";
+            retData.code = 200;
+            retData.httpCode = 200;
+            retData.msg = "Order created successfully.";
+
+            retData.data = {
+
+                key: process.env.RAZORPAY_KEY_ID,
+                razorpayOrderId: razorpayOrder.id,
+                purchaseOrderId: purchaseOrder._id,
+                amount: razorpayOrder.amount,
+                currency: razorpayOrder.currency,
+                receipt
+
+            };
+            
+            console.error("Create Order:", retData.data);
+            
+            return AppHelpers.Utils.cRes(res, retData);
+
+        } catch (error) {
+
+            if (session) {
+                await session.abortTransaction();
+                session.endSession();
+            }
+
+            console.error("Create Order Error:", error);
+
+            retData.status = "error";
+            retData.code = 500;
+            retData.httpCode = 500;
+            retData.msg = error.message || "Order creation failed.";
+            retData.data = [];
+        
+            return AppHelpers.Utils.cRes(res, retData);
+
+        }
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // VERIFY PAYMENT ON RAZORPAY
+    // ─────────────────────────────────────────────────────────────
+    verifyPayment: async (req, res) => {
+
+        const retData = AppHelpers.Utils.responseObject();
+
+        try {
+
+            const {
+                razorpay_payment_id,
+                razorpay_order_id,
+                razorpay_signature
+            } = req.body;
+
+            //-----------------------------------------------------
+            // Validate Request
+            //-----------------------------------------------------
+
+            if (
+                !razorpay_payment_id ||
+                !razorpay_order_id ||
+                !razorpay_signature
+            ) {
+
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Payment details are required.";
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            //-----------------------------------------------------
+            // Verify Razorpay Signature
+            //-----------------------------------------------------
+
+            const generatedSignature = crypto
+                .createHmac(
+                    "sha256",
+                    process.env.RAZORPAY_KEY_SECRET
+                )
+                .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+                .digest("hex");
+
+            if (generatedSignature !== razorpay_signature) {
+
+                retData.status = "error";
+                retData.code = 400;
+                retData.httpCode = 400;
+                retData.msg = "Invalid payment signature.";
+
+                return AppHelpers.Utils.cRes(res, retData);
+            }
+
+            //-----------------------------------------------------
+            // Complete Payment
+            //-----------------------------------------------------
+
+            const result = await PaymentService.completePayment({
+                orderId: razorpay_order_id,
+                paymentId: razorpay_payment_id,
+                signature: razorpay_signature,
+                paymentMethod: "ONLINE",
+                source: "API"
             });
 
-            
+
+            //-----------------------------------------------------
+            // Success Response
+            //-----------------------------------------------------
 
             retData.status = "success";
             retData.code = 200;
             retData.httpCode = 200;
-            retData.msg = "Order created successfully!";
-            retData.data = order;
+            retData.msg = "Payment verified successfully.";
+
+            retData.data = {
+                invoice: result.invoice,
+                purchaseOrder: result.purchaseOrder
+            };
 
             return AppHelpers.Utils.cRes(res, retData);
 
         } catch (error) {
-            console.error("Create order error:", error);
-            retData.status = "error";
-            retData.msg = "Order creation failed";
-            retData.data = [{ details: error.message }];
-            return AppHelpers.Utils.cRes(res, retData);
-        }
-    },
 
+            console.error("Verify Payment Error:", error);
 
-    // --------------------------------------------------------
-    // VERIFIED THE PAYMENT ON RAZORPAY
-    // --------------------------------------------------------
-    verifyPayment: async (req, res) => {
-        const retData = AppHelpers.Utils.responseObject();
-        const globalSetting = await GlobalSetting.findOne({
-            key: "global_settings_content",
-        }).lean();
-        
-        let getContent = {};
-        if (globalSetting?.value) {
-            getContent = JSON.parse(globalSetting.value);
-        }
-
-        
-        try {
-            const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
-
-            if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
-                retData.status = "error";
-                retData.code = 400;
-                retData.httpCode = 400;
-                retData.msg = "Payment details are required";
-                return AppHelpers.Utils.cRes(res, retData);
-            }
-
-            /* ----------------------------------------------------
-            1️⃣ VERIFY RAZORPAY SIGNATURE
-            ---------------------------------------------------- */
-            const secretKey = process.env.RAZORPAY_KEY_SECRET;
-            const body = `${razorpay_order_id}|${razorpay_payment_id}`;
-
-            const expectedSignature = crypto
-            .createHmac("sha256", secretKey)
-            .update(body)
-            .digest("hex");
-
-            if (expectedSignature !== razorpay_signature) {
-                retData.status = "error";
-                retData.code = 403;
-                retData.httpCode = 403;
-                retData.msg = "Invalid payment signature";
-                return AppHelpers.Utils.cRes(res, retData);
-            }
-
-            /* ----------------------------------------------------
-            2️⃣ UPDATE INVOICE
-            ---------------------------------------------------- */
-            const invoice = await Invoice.findOneAndUpdate(
-            { orderId: razorpay_order_id },
-            {
-                paymentId: razorpay_payment_id,
-                status: "SUCCESS",
-            },
-            { new: true }
-            );
-
-            if (!invoice) {
-                retData.status = "error";
-                retData.code = 404;
-                retData.httpCode = 404;
-                retData.msg = "Invoice not found";
-                return AppHelpers.Utils.cRes(res, retData);
-            }
-
-            /* ----------------------------------------------------
-            3️⃣ CREATE PAYMENT LOG
-            ---------------------------------------------------- */
-            await PaymentLog.create({
-                invoiceId: invoice._id,
-                userId: invoice.userId,
-                gateway: "razorpay",
-                orderId: razorpay_order_id,
-                paymentId: razorpay_payment_id,
-                eventType: "payment_success",
-                status: "SUCCESS",
-                amount: invoice.amount,
-                logData: req.body,
-            });
-
-            /* ----------------------------------------------------
-            4️⃣ UPDATE PURCHASE ORDER (THIS WAS THE BUG)
-            ---------------------------------------------------- */
-            const purchaseOrder = await PurchaseOrder.findOneAndUpdate(
-            { razorpayOrderId: razorpay_order_id },
-            { status: "PAID" },
-            { new: true }
-            )
-            .populate("userId", "name email")
-            .populate(
-                "items.productId",
-                "title shortDescription price author subject exam language pages format filePath"
-            );
-
-            if (!purchaseOrder) {
-                retData.status = "error";
-                retData.msg = "Purchase order not found";
-                return AppHelpers.Utils.cRes(res, retData);
-            }
-
-            /* ----------------------------------------------------
-            UPDATE DOCUMENT DOWNLOAD COUNT
-            ---------------------------------------------------- */
-            
-            if (purchaseOrder?.items?.length > 0) {
-                const bulkUpdates = purchaseOrder.items.map((item) => ({
-                    updateOne: {
-                        filter: {
-                            _id: item.productId?._id || item.productId
-                        },
-                        update: {
-                            $inc: {
-                                noOfDownloads: item.quantity || 1
-                            }
-                        }
-                    }
-                }));
-
-                await Document.bulkWrite(bulkUpdates);
-            }
-            
-            /* ----------------------------------------------------
-                REFERRAL LOGIC (FIRST PURCHASE ONLY)
-            ---------------------------------------------------- */
-
-            const buyer = await User.findById(purchaseOrder.userId);
-
-            const referralRecord = await Refferal.findOne({
-                referred_user_id: buyer._id,
-                status: "pending",
-                is_first_purchase: true
-            });
-
-            if (referralRecord) {
-                const globalSetting = await GlobalSetting.findOne({
-                    key: "global_settings_content",
-                }).lean();
-                
-                let settings = {};
-
-                if (globalSetting?.value) {
-                    settings = JSON.parse(globalSetting.value);
-                }
-
-                const REFERRAL_PERCENT = settings.refferalCommission ?? 5;
-                const MAX_CAP = settings.minRefferalAmt ?? 20;
-
-                const orderAmount = purchaseOrder.amount;
-
-                let referralCommission = (orderAmount * REFERRAL_PERCENT) / 100;
-
-                // Apply MAX CAP
-                if (referralCommission > MAX_CAP) {
-                    referralCommission = MAX_CAP;
-                }
-
-                // Update Referral Record
-                referralRecord.status = "completed";
-                referralRecord.order_id = purchaseOrder._id;
-                referralRecord.order_amount = orderAmount;
-                referralRecord.commission_percent = REFERRAL_PERCENT;
-                referralRecord.commission_amount = referralCommission;
-                referralRecord.commission_status = "paid";
-                referralRecord.referral_code_used = true;
-                referralRecord.completed_at = new Date();
-                referralRecord.is_first_purchase = false;
-                await referralRecord.save();
-
-                await Revenue.create({
-                    orderId: purchaseOrder._id,
-                    sellerId: buyer._id,
-                    buyerId: purchaseOrder.userId,
-                    totalAmount: orderAmount,
-                    adminCommission: 0,
-                    sellerAmount: referralCommission,
-                    commissionPercent: 0,
-                    status: "PENDING",
-                    payoutType: "Referal Payout"
-                });
-
-                console.log("Referral commission applied:", referralCommission);
-            }
-            /* ----------------------------------------------------
-                CREATE AN ENTRY RENVENUE TABLE (SPLIT PAYMENT)
-            ---------------------------------------------------- */
-            const cartItems = await Cart.findOne({ user: purchaseOrder.userId })
-            .populate({
-                path: "items.product",
-                select: "title price docImage slug uploadedBy finalPrice", // optional fields
-            });
-
-            if (cartItems.items.length === 0) {
-                retData.status = "error";
-                retData.code = 400;
-                retData.httpCode = 400;
-                retData.msg = "Cart is empty";
-                return AppHelpers.Utils.cRes(res, retData);
-            }
-
-            // Revenue Split Logic
-            for (const item of cartItems.items) {
-                const baseAmount = item.product.price * item.quantity;
-                
-                const platformFee = item.product.finalPrice - baseAmount;
-                const sellerAmount = baseAmount;
-
-                
-                await Revenue.create({
-                    orderId: purchaseOrder._id,
-                    sellerId: item.sellerId,
-                    buyerId: purchaseOrder.userId,
-                    totalAmount: item.product.finalPrice,
-                    adminCommission: platformFee,
-                    sellerAmount,
-                    commissionPercent: 0,
-                    status: "PENDING",
-                    payoutType: "Seller Payout"
-                });
-            }
-
-            /* ----------------------------------------------------
-            5️⃣ CLEAR CART
-            ---------------------------------------------------- */
-            await Cart.findOneAndUpdate(
-            { user: purchaseOrder.userId },
-            { $set: { items: [] } }
-            );
-
-            /* ----------------------------------------------------
-            6️⃣ SEND ORDER CONFIRMATION EMAIL
-            ---------------------------------------------------- */
-            const template = await EmailTemplate.findOne({
-                key: "ORDER_CONFIRMATION",
-                isActive: true,
-            });
-
-            if (template) {
-
-                const parsedItems = purchaseOrder.items.map(item => ({
-                    title: item.productId.title,
-                    price: item.productId.price,
-                    quantity: item.quantity,
-                }));
-
-                const itemsHTML = Controller.buildOrderItemsHTML(parsedItems);
-
-                await sendDynamicTemplateEmail({
-                    to: purchaseOrder.userId.email,
-                    templateKey: "ORDER_CONFIRMATION",
-                    variables: {
-                        name: purchaseOrder.userId.name,
-                        orderId: purchaseOrder._id.toString(),
-                        amount: purchaseOrder.amount,
-                        items: itemsHTML,
-                    },
-                });
-            }
-
-            /* ----------------------------------------------------
-            7️⃣ RESPONSE
-            ---------------------------------------------------- */
-            retData.status = "success";
-            retData.code = 200;
-            retData.httpCode = 200;
-            retData.msg = "Payment verified successfully!";
-            retData.data = {
-                invoice,
-                purchaseOrderId: purchaseOrder._id,
-            };
-
-            return AppHelpers.Utils.cRes(res, retData);
-
-        } catch (err) {
-            console.error("Payment verification error:", err);
             retData.status = "error";
             retData.code = 500;
             retData.httpCode = 500;
-            retData.msg = "Payment verification failed";
-            retData.data = { details: err.message };
+            retData.msg = error.message || "Payment verification failed.";
+
             return AppHelpers.Utils.cRes(res, retData);
+
         }
     },
+
 
     // --------------------------------------------------------
     // GET PURCHASED NOTES (MY PURCHASES)
@@ -3384,7 +3292,6 @@ const Controller = {
         }
     },
 
-
     // --------------------------------------------------------
     // DRAFT TOGGLE
     // --------------------------------------------------------
@@ -3441,6 +3348,158 @@ const Controller = {
             );
         }
     },
+
+
+    razorpayWebhook: async (req, res) => {
+
+        Logger.webhook("====================================================");
+        Logger.webhook("Razorpay Webhook Received");
+        Logger.webhook(`Time: ${new Date().toISOString()}`);
+
+        try {
+
+            //----------------------------------------------------
+            // Verify Signature
+            //----------------------------------------------------
+
+            const webhookSignature = req.headers["x-razorpay-signature"];
+
+            Logger.webhook(`Webhook Signature: ${webhookSignature}`);
+
+            const generatedSignature = crypto
+                .createHmac(
+                    "sha256",
+                    process.env.RAZORPAY_WEBHOOK_SECRET
+                )
+                .update(req.body)
+                .digest("hex");
+
+            Logger.webhook(`Generated Signature: ${generatedSignature}`);
+
+            if (generatedSignature !== webhookSignature) {
+
+                Logger.error("Invalid Razorpay Webhook Signature");
+
+                return res.status(401).json({
+                    success: false,
+                    message: "Invalid Signature"
+                });
+
+            }
+
+            Logger.webhook("Webhook Signature Verified Successfully");
+
+            //----------------------------------------------------
+            // Parse Event
+            //----------------------------------------------------
+
+            const event = JSON.parse(req.body.toString());
+
+            Logger.webhook(`Webhook Event: ${event.event}`);
+
+            //----------------------------------------------------
+            // Handle Events
+            //----------------------------------------------------
+
+            switch (event.event) {
+
+                case "payment.captured": {
+
+                    const payment = event.payload.payment.entity;
+
+                    Logger.payment("----------------------------------------");
+                    Logger.payment("Payment Captured");
+                    Logger.payment(`Payment ID : ${payment.id}`);
+                    Logger.payment(`Order ID   : ${payment.order_id}`);
+                    Logger.payment(`Amount     : ${payment.amount}`);
+                    Logger.payment(`Currency   : ${payment.currency}`);
+                    Logger.payment(`Method     : ${payment.method}`);
+                    Logger.payment(`Status     : ${payment.status}`);
+
+                    Logger.payment(
+                        `Calling completePayment() for Order ${payment.order_id}`
+                    );
+
+                    const result = await PaymentService.completePayment({
+                        orderId: payment.order_id,
+                        paymentId: payment.id,
+                        signature: null,
+                        paymentMethod: payment.method,
+                        source: "WEBHOOK"
+                    });
+
+                    Logger.payment(
+                        `Payment Process Completed Successfully for Order ${payment.order_id}`
+                    );
+
+                    break;
+                }
+
+                case "payment.failed": {
+
+                    const payment = event.payload.payment.entity;
+
+                    Logger.error("----------------------------------------");
+                    Logger.error("Payment Failed");
+                    Logger.error(`Payment ID : ${payment.id}`);
+                    Logger.error(`Order ID   : ${payment.order_id}`);
+                    Logger.error(`Reason     : ${payment.error_description || "Unknown"}`);
+
+                    break;
+                }
+
+                case "order.paid": {
+
+                    const order = event.payload.order.entity;
+
+                    Logger.payment("----------------------------------------");
+                    Logger.payment("Order Paid");
+                    Logger.payment(`Order ID : ${order.id}`);
+                    Logger.payment(`Amount   : ${order.amount}`);
+
+                    break;
+                }
+
+                default:
+                    Logger.webhook(`Unhandled Event : ${event.event}`);
+
+            }
+
+            Logger.webhook("Webhook Process Completed Successfully");
+
+            return res.status(200).json({
+                success: true
+            });
+
+        }
+
+        catch (error) {
+
+            Logger.error("========================================");
+            Logger.error("Webhook Error");
+            Logger.error(error.message);
+            Logger.error(error.stack);
+
+            // Already Processed
+            if (error.message === "Already Processed") {
+
+                Logger.payment("Payment already processed. Ignoring duplicate webhook.");
+
+                return res.status(200).json({
+                    success: true
+                });
+
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: error.message
+            });
+
+        }
+
+    },
+
 };
 
 module.exports = Controller;

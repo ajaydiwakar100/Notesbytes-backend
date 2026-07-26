@@ -58,7 +58,7 @@ const Controller = {
                 isDeleted: false 
             })
             .sort({ createdAt: -1 })
-            .limit(limit)
+            //.limit(limit)
             .lean();
 
             featuredDocs.forEach((doc) => {

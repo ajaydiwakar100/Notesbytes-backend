@@ -23,6 +23,8 @@ global.AppHelpers = require("./app/helpers");
 global.VIEW_PATH = path.join(__dirname, "views");
 app.use("/api/admin/uploads", express.static(path.join(__dirname, "uploads")));
 
+
+
 /* ---------------------------
    MONGO DB CONNECTION
 ----------------------------*/
@@ -62,6 +64,7 @@ app.get("/", (req, res) => {
 
 // start crons
 require("./app/controllers/cron/sellerPayout.cron");
+require("./app/controllers/cron/paymentRecovery.cron");
 
 // Import admin routes (CommonJS)
 const adminRoutes = require("./app/routes/admin.routes");

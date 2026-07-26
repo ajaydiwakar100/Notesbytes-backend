@@ -191,6 +191,7 @@ module.exports = function(app) {
   router.post("/razorpay/create-fund-account",userAuth, documentController.createOrUpdateRazorpayAccount);
   router.post("/razorpay/save-payment-details",userAuth, documentController.savePaymentDetails);
   router.get("/razorpay/get-payment-details",userAuth, documentController.getPaymentDetails);
+  router.post("/razorpay/webhook", express.raw({ type: "application/json" }),documentController.razorpayWebhook);
 
 
   
